@@ -1,0 +1,379 @@
+{
+  "version": 1,
+  "about": "One entry per rule. The lint reads profile, requires, gating, title and fix from here; Test-Rulebook.ps1 proves every bad example triggers its rule and every good example stays clean; New-RuleDocs.ps1 generates RULES.md and agent-rules.md from it.",
+  "features": {
+    "toolkit": "Uno Toolkit (UnoFeatures Toolkit, Uno.Toolkit* package, using:Uno.Toolkit.UI)",
+    "themes": "An Uno.Themes theme (UnoFeatures Material, Cupertino or Simple*, Uno.Themes/Uno.Material packages)",
+    "material": "Material theme (UnoFeatures Material, Uno.Material)",
+    "navigation": "Uno.Extensions Navigation (UnoFeatures Navigation)",
+    "mvux": "MVUX (UnoFeatures MVUX, Uno.Extensions.Reactive)"
+  },
+  "rules": [
+    {
+      "id": "CARD",
+      "unoLint": "UNOL101",
+      "status": "in-uno-lint",
+      "profile": "strict",
+      "gating": true,
+      "requires": ["toolkit"],
+      "title": "Border with CornerRadius + fill/stroke/padding -> CardContentControl",
+      "why": "A hand-drawn card ignores the theme's card styles and states, so every card in the app drifts a little differently.",
+      "fix": {
+        "default": "utu:CardContentControl (Filled/Outlined/ElevatedCardContentControlStyle) + lightweight keys (CardCornerRadius, CardPadding, <Variant>CardContentBackground/BorderBrush)."
+      },
+      "examples": {
+        "lang": "xaml",
+        "bad": "<Border CornerRadius=\"{StaticResource Radius200CornerRadius}\" Background=\"{ThemeResource SurfaceBrush}\">\n  <StackPanel><TextBlock Text=\"Order 1042\" /><TextBlock Text=\"3 items\" /></StackPanel>\n</Border>",
+        "good": "<utu:CardContentControl Style=\"{StaticResource FilledCardContentControlStyle}\">\n  <StackPanel><TextBlock Text=\"Order 1042\" /><TextBlock Text=\"3 items\" /></StackPanel>\n</utu:CardContentControl>",
+        "fixtures": ["card", "card-shapes", "corpus-card"]
+      },
+      "enforcement": { "build": null, "runtime": null },
+      "evidence": "Corpus 2026-11-17: image clips and one-child badges in uno.chefs were false positives, now exempt.",
+      "differsFromUnoLint": "uno-lint still flags image clips and badges (lab fixture corpus-card)."
+    },
+    {
+      "id": "HEX",
+      "unoLint": "UNOL001",
+      "status": "in-uno-lint",
+      "profile": "recommended",
+      "gating": true,
+      "requires": [],
+      "title": "hex literal outside the palette override -> theme brush",
+      "why": "A literal colour does not follow light/dark or a brand change; the theme's palette is the one place colours belong.",
+      "fix": {
+        "default": "a theme brush ({ThemeResource ...Brush}) from the app's theme, or a colour defined once in the theme's colour override file. A literal colour does not follow light/dark or brand changes.",
+        "material": "a Material role brush (PrimaryBrush, OnSurfaceBrush, SurfaceContainerHighBrush, OutlineVariantBrush, ErrorBrush...). The only colours an app defines live in its ColorPaletteOverride file; brand colour goes there. Status and chart colours map to Primary/Secondary/Tertiary/Error and their containers."
+      },
+      "examples": {
+        "lang": "xaml",
+        "bad": "<TextBlock Text=\"Overdue\" Foreground=\"#D32F2F\" />",
+        "good": "<TextBlock Text=\"Overdue\" Foreground=\"{ThemeResource ErrorBrush}\" />",
+        "fixtures": ["hex", "corpus-resources", "corpus-lightweight", "hex-themedict-strict", "profile-recommended"]
+      },
+      "enforcement": { "build": null, "runtime": "Switch light/dark with the App MCP and check the element's colour changes." },
+      "evidence": "Corpus 2026-11-17: theme seed colours, fully transparent #00 colours and ThemeDictionaries colours (recommended) were false positives, now exempt.",
+      "differsFromUnoLint": "uno-lint also flags named colours (Fill=\"Red\"), which the lab misses (244 hits in uno.toolkit.ui samples). uno-lint flags transparent colours and MAUI XAML."
+    },
+    {
+      "id": "CSCOLOR",
+      "unoLint": "UNOL001",
+      "status": "in-uno-lint",
+      "profile": "recommended",
+      "gating": true,
+      "requires": [],
+      "title": "colour literal in C# -> theme resource + redraw on theme change",
+      "why": "Colours chosen in code skip the theme entirely and never change with light/dark.",
+      "fix": {
+        "default": "read the colour from theme resources (a Brush dependency property bound with {ThemeResource ...Brush}, or a lookup keyed on ActualTheme) and redraw on ActualThemeChanged."
+      },
+      "examples": {
+        "lang": "cs",
+        "file": "Legend.cs",
+        "bad": "public class Legend\n{\n    Color Overdue => Colors.Red;\n}",
+        "good": "public class Legend\n{\n    Brush Overdue => (Brush)Application.Current.Resources[\"ErrorBrush\"];\n}",
+        "fixtures": ["cscolor", "corpus-cscolor"]
+      },
+      "enforcement": { "build": null, "runtime": "Switch light/dark and check drawn colours change." },
+      "evidence": "Corpus 2026-11-17: C# Markup ColorPaletteOverride.cs, Theme.Colors keys and dependency property defaults were false positives, now exempt.",
+      "differsFromUnoLint": "uno-lint reports these under HEX (UNOL001), so an 'allow cscolor' comment does not suppress them there. uno-lint flags dependency property defaults and MAUI C#."
+    },
+    {
+      "id": "SPACING",
+      "unoLint": null,
+      "status": "lab",
+      "profile": "strict",
+      "gating": true,
+      "requires": ["themes"],
+      "title": "margin/padding/spacing literal -> Uno.Themes Space* token",
+      "why": "Literal spacing cannot be rescaled from the theme and drifts between screens.",
+      "fix": {
+        "default": "Uno.Themes Space* tokens: {StaticResource Space400Thickness} for Margin/Padding, {StaticResource Space200} for Spacing. Rescale the whole app with DefaultSpacing on the theme."
+      },
+      "examples": {
+        "lang": "xaml",
+        "bad": "<StackPanel Margin=\"16\" Spacing=\"8\" />",
+        "good": "<StackPanel Margin=\"{StaticResource Space400Thickness}\" Spacing=\"{StaticResource Space200}\" />",
+        "fixtures": ["spacing", "dirbuildprops"]
+      },
+      "enforcement": { "build": null, "runtime": null },
+      "evidence": "Opinionated: uno.chefs (reference app) has 193 literal spacings, so this stays strict-only.",
+      "differsFromUnoLint": "Not in uno-lint."
+    },
+    {
+      "id": "RADIUS",
+      "unoLint": null,
+      "status": "lab",
+      "profile": "strict",
+      "gating": true,
+      "requires": ["themes"],
+      "title": "corner radius literal -> Uno.Themes Radius* token",
+      "why": "Literal radii cannot be rescaled from the theme and drift between controls.",
+      "fix": {
+        "default": "Uno.Themes Radius* tokens: {StaticResource Radius200CornerRadius}. Rescale with DefaultCornerRadius on the theme."
+      },
+      "examples": {
+        "lang": "xaml",
+        "bad": "<Button Content=\"Save\" CornerRadius=\"8\" />",
+        "good": "<Button Content=\"Save\" CornerRadius=\"{StaticResource Radius200CornerRadius}\" />",
+        "fixtures": ["radius", "card-shapes"]
+      },
+      "enforcement": { "build": null, "runtime": null },
+      "evidence": "Opinionated: uno.chefs has 52 literal radii, so this stays strict-only.",
+      "differsFromUnoLint": "Not in uno-lint."
+    },
+    {
+      "id": "TOKENTHEME",
+      "unoLint": "UNOL002",
+      "status": "in-uno-lint",
+      "profile": "recommended",
+      "gating": true,
+      "requires": [],
+      "title": "app brush with one value for both themes -> theme brush, ThemeDictionaries, or *Invariant name",
+      "why": "A brush defined once outside ThemeDictionaries keeps its light-mode value in dark mode.",
+      "fix": {
+        "default": "use a theme role brush; else define the key per theme in ThemeDictionaries; name it *Invariant/*OnDark/*OnLight/*Fixed only when its ground is fixed in both themes."
+      },
+      "examples": {
+        "lang": "xaml",
+        "bad": "<Page.Resources>\n  <SolidColorBrush x:Key=\"AccentBrush\" Color=\"{StaticResource BrandColor}\" />\n</Page.Resources>",
+        "good": "<Page.Resources>\n  <ResourceDictionary>\n    <ResourceDictionary.ThemeDictionaries>\n      <ResourceDictionary x:Key=\"Light\"><SolidColorBrush x:Key=\"AccentBrush\" Color=\"{StaticResource BrandColor}\" /></ResourceDictionary>\n      <ResourceDictionary x:Key=\"Dark\"><SolidColorBrush x:Key=\"AccentBrush\" Color=\"{StaticResource BrandColorDark}\" /></ResourceDictionary>\n    </ResourceDictionary.ThemeDictionaries>\n  </ResourceDictionary>\n</Page.Resources>",
+        "fixtures": ["tokentheme", "corpus-lightweight", "corpus-resources"]
+      },
+      "enforcement": { "build": null, "runtime": "Switch light/dark and check the brush changes." },
+      "evidence": "Corpus 2026-11-17: lightweight styling in one control's Resources, StaticResource aliases and converters keyed *Brush were false positives, now exempt.",
+      "differsFromUnoLint": "uno-lint does not flag a brush whose Color is a {ThemeResource}; the lab does. Unverified which is right at runtime. uno-lint flags converters keyed *Brush."
+    },
+    {
+      "id": "BACKBAR",
+      "unoLint": "UNOL102",
+      "status": "in-uno-lint",
+      "profile": "strict",
+      "gating": true,
+      "requires": ["toolkit"],
+      "title": "hand-built back button -> utu:NavigationBar",
+      "why": "A hand-built back button misses the platform back gesture and the shared app bar layout.",
+      "fix": {
+        "default": "utu:NavigationBar with a MainCommand AppBarButton; back navigation and the Android back gesture come with it."
+      },
+      "examples": {
+        "lang": "xaml",
+        "bad": "<Button uen:Navigation.Request=\"-\" Content=\"Back\" />",
+        "good": "<utu:NavigationBar Content=\"Details\">\n  <utu:NavigationBar.MainCommand><AppBarButton uen:Navigation.Request=\"-\" /></utu:NavigationBar.MainCommand>\n</utu:NavigationBar>",
+        "fixtures": ["backbar", "corpus-dialog"]
+      },
+      "enforcement": { "build": null, "runtime": null },
+      "evidence": "Corpus 2026-11-17: Navigation.Request=\"-\" closing a ContentDialog in uno.chefs was a false positive, now exempt.",
+      "differsFromUnoLint": "uno-lint flags the ContentDialog close button."
+    },
+    {
+      "id": "CODEBEHIND",
+      "unoLint": "UNOL103",
+      "status": "in-uno-lint",
+      "profile": "strict",
+      "gating": true,
+      "requires": [],
+      "title": "event handler or Visibility toggle in code-behind -> commands, visual states, bindings",
+      "why": "Logic in code-behind cannot be tested and spreads: one workaround gets copied to every page.",
+      "fix": {
+        "default": "commands on the model (ICommand), VisualStateManager states driven by model state, or Visibility bound to the model.",
+        "toolkit": "utu:CommandExtensions.Command, commands on the model, utu:VisualStateManagerExtensions.States bound to model state, or Visibility bound to the model."
+      },
+      "examples": {
+        "lang": "cs",
+        "file": "OrdersPage.xaml.cs",
+        "bad": "public sealed partial class OrdersPage : Page\n{\n    private void OnSaveClick(object sender, RoutedEventArgs e) { }\n}",
+        "good": "public sealed partial class OrdersPage : Page\n{\n    public OrdersPage() => this.InitializeComponent();\n}",
+        "fixtures": ["codebehind", "template-app"]
+      },
+      "enforcement": { "build": null, "runtime": null },
+      "evidence": "dotnet new unoapp (blank) wires Frame.NavigationFailed in App.xaml.cs: app-level wiring, exempt. uno.chefs keeps 2 handlers (flyout opening, map tap) as deliberate glue; strict-only.",
+      "differsFromUnoLint": "uno-lint lints MAUI code-behind too."
+    },
+    {
+      "id": "OVERLAY",
+      "unoLint": "UNOL104",
+      "status": "in-uno-lint",
+      "profile": "strict",
+      "gating": true,
+      "requires": [],
+      "title": "overlay/sheet toggled in code-behind -> flyout, dialog or !Route",
+      "why": "Hand-toggled overlays miss focus handling, dismissal and back navigation.",
+      "fix": {
+        "default": "a Flyout or ContentDialog, or Visibility bound to model state; filter state lives in the model.",
+        "navigation": "uen:Navigation.Request=\"!Route\" to a Page (opens as a flyout) with a DrawerFlyoutPresenter style; filter state lives in the model."
+      },
+      "examples": {
+        "lang": "cs",
+        "file": "SearchPage.xaml.cs",
+        "bad": "public sealed partial class SearchPage : Page\n{\n    void ShowFilters() => FilterSheet.Visibility = Visibility.Visible;\n}",
+        "good": "public sealed partial class SearchPage : Page\n{\n    public SearchPage() => this.InitializeComponent();\n}",
+        "fixtures": ["codebehind"]
+      },
+      "enforcement": { "build": null, "runtime": null },
+      "evidence": "Rare in the corpus (1 hit in uno.themes).",
+      "differsFromUnoLint": "None found."
+    },
+    {
+      "id": "RESPONSIVE",
+      "unoLint": "UNOL005",
+      "status": "in-uno-lint",
+      "profile": "recommended",
+      "gating": true,
+      "requires": [],
+      "notes": "AdaptiveTrigger hits run only with Uno Toolkit and cannot be suppressed; code-behind width checks run in every project.",
+      "title": "AdaptiveTrigger or code-behind breakpoint -> utu:Responsive / utu:ResponsiveView",
+      "why": "Two breakpoint systems in one app drift apart; width logic in code-behind cannot be previewed or tested.",
+      "fix": {
+        "default": "move the breakpoint into XAML: a VisualStateManager state with an AdaptiveTrigger (or add Uno Toolkit and use {utu:Responsive}). Never compare widths in code-behind or keep width flags on a view model.",
+        "toolkit": "breakpoints are always {utu:Responsive} in XAML for a value, utu:ResponsiveView when the whole template changes (custom thresholds via a utu:ResponsiveLayout resource). No WinUI AdaptiveTrigger (not suppressible), never code-behind, never width flags on a view model."
+      },
+      "examples": {
+        "lang": "xaml",
+        "bad": "<VisualStateManager.VisualStateGroups><VisualStateGroup><VisualState>\n  <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth=\"720\" /></VisualState.StateTriggers>\n</VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups>",
+        "good": "<StackPanel Orientation=\"{utu:Responsive Narrow=Vertical, Wide=Horizontal}\" />",
+        "fixtures": ["responsive", "toolkit-prefix", "plain-winui", "profile-recommended"]
+      },
+      "enforcement": {
+        "build": "BannedApiAnalyzers: P:Microsoft.UI.Xaml.AdaptiveTrigger.MinWindowWidth and MinWindowHeight in BannedSymbols.txt + WarningsAsErrors RS0030. Proven 2026-11-17 on Uno.Sdk 6.7.30 desktop; banning the type false-positives via BindableMetadata.g.cs.",
+        "runtime": "Resize to Narrow and Wide with the App MCP and compare the visual tree."
+      },
+      "evidence": "A private Toolkit app had 6 AdaptiveTriggers across 3 pages. uno.gallery has 31.",
+      "differsFromUnoLint": "uno-lint UNOL005 only checks code-behind and its fix text suggests AdaptiveTrigger. Policy question."
+    },
+    {
+      "id": "BUILTIN",
+      "unoLint": "UNOL004",
+      "status": "in-uno-lint",
+      "profile": "recommended",
+      "gating": true,
+      "requires": [],
+      "title": "custom control shadowing a platform/Toolkit control",
+      "why": "A re-implemented control misses the theme, accessibility and fixes the shipped one gets.",
+      "fix": {
+        "default": "use the platform/Toolkit control named above with lightweight styling before writing a custom control; then Windows Community Toolkit 8.x."
+      },
+      "examples": {
+        "lang": "cs",
+        "file": "StarRating.cs",
+        "bad": "public sealed class StarRating : Control { }",
+        "good": "public sealed class OrderSummary : Control { }",
+        "fixtures": ["builtin"]
+      },
+      "enforcement": { "build": null, "runtime": null },
+      "evidence": "Uno.Samples: BusyIndicator -> ProgressRing is a true positive.",
+      "differsFromUnoLint": "None found."
+    },
+    {
+      "id": "ICON",
+      "unoLint": "UNOL003",
+      "status": "in-uno-lint",
+      "profile": "recommended",
+      "gating": true,
+      "requires": [],
+      "title": "inline or shape-built icon geometry -> icon font or keyed set data in Icons.xaml",
+      "why": "Hand-drawn icons drift in size and stroke and cannot be swapped as a set.",
+      "fix": {
+        "default": "SymbolIcon/FontIcon on the Fluent symbol font, or keyed path data from one open icon set (Material Symbols, Fluent System Icons) in Icons.xaml via PathIcon Data=\"{StaticResource ...}\". Never hand-draw icons. Illustrations get \"xaml-lint: allow icon - illustration\"."
+      },
+      "examples": {
+        "lang": "xaml",
+        "bad": "<PathIcon Data=\"M12,2 L22,22 L2,22 Z\" />",
+        "good": "<SymbolIcon Symbol=\"Favorite\" />",
+        "fixtures": ["icon", "suppression"]
+      },
+      "enforcement": { "build": null, "runtime": null },
+      "evidence": "uno.gallery's 88 hits are showcase pages that draw paths on purpose.",
+      "differsFromUnoLint": "uno-lint suppression covers one element; the lab covers the element under the comment and its children."
+    },
+    {
+      "id": "PLATFORMLEAK",
+      "unoLint": null,
+      "status": "lab",
+      "profile": "recommended",
+      "gating": true,
+      "requires": [],
+      "title": "platform branch in a model/view model -> platform service or Platforms/ partial",
+      "why": "Platform branches in models make them untestable on other targets and scatter platform logic.",
+      "fix": {
+        "default": "move the branch into a platform service (interface in shared code, implementation per head or in a Platforms/ partial) and inject it; models stay platform-neutral."
+      },
+      "examples": {
+        "lang": "cs",
+        "file": "CameraViewModel.cs",
+        "bad": "public partial class CameraViewModel\n{\n    bool CanScan => OperatingSystem.IsAndroid();\n}",
+        "good": "public partial class CameraViewModel(IScannerService scanner)\n{\n    bool CanScan => scanner.IsAvailable;\n}",
+        "fixtures": ["platformleak", "corpus-platformleak"]
+      },
+      "enforcement": { "build": null, "runtime": null },
+      "evidence": "uno.ch9 view models: 2 true positives (#if !__WASM__).",
+      "differsFromUnoLint": "Not in uno-lint."
+    },
+    {
+      "id": "SYNCWAIT",
+      "unoLint": null,
+      "status": "lab",
+      "profile": "recommended",
+      "gating": true,
+      "requires": [],
+      "title": "blocking .Wait()/.Result/GetResult() -> await",
+      "why": "Blocking on a task freezes the UI thread and can deadlock.",
+      "fix": {
+        "default": "await the task. If the caller cannot be async (constructor, property), start the load from a command or MVUX feed instead of blocking."
+      },
+      "examples": {
+        "lang": "cs",
+        "file": "OrderLoader.cs",
+        "bad": "public class OrderLoader\n{\n    string Load(HttpClient http) => http.GetStringAsync(\"/orders\").Result;\n}",
+        "good": "public class OrderLoader\n{\n    async Task<string> Load(HttpClient http) => await http.GetStringAsync(\"/orders\");\n}",
+        "fixtures": ["syncwait", "corpus-syncwait"]
+      },
+      "enforcement": { "build": "Microsoft.VisualStudio.Threading.Analyzers VSTHRD002 covers synchronous waits; not yet tested on an Uno Platform project.", "runtime": null },
+      "evidence": "Corpus 2026-11-17: .Result after a completion check (uno.ch9) and mock endpoints (uno.chefs) were false positives, now exempt.",
+      "differsFromUnoLint": "Not in uno-lint."
+    },
+    {
+      "id": "BINDVALUE",
+      "unoLint": "UNOL201",
+      "status": "in-uno-lint",
+      "profile": "recommended",
+      "gating": true,
+      "requires": ["mvux"],
+      "title": "{Binding State.Value, Mode=TwoWay} on an input in an MVUX model -> {Binding State}",
+      "why": "The MVUX bindable proxy already exposes the state's value; a two-way binding to .Value on an input does not write back.",
+      "fix": {
+        "default": "bind the state itself on a two-way input: {Binding State, Mode=TwoWay}. The MVUX proxy already exposes the value. Inside a FeedView template bind {Binding Data.X}."
+      },
+      "examples": {
+        "lang": "xaml",
+        "bad": "<TextBox Text=\"{Binding City.Value, Mode=TwoWay}\" />",
+        "good": "<TextBox Text=\"{Binding City, Mode=TwoWay}\" />",
+        "fixtures": ["bindvalue", "bindvalue-mvvm", "corpus-bindvalue"]
+      },
+      "enforcement": { "build": null, "runtime": "Type into the field with the App MCP and read the model state back. Not yet run: the narrowed claim is unverified." },
+      "evidence": "Uno Platform's own MVUX samples (MvuxHowTos, ToDo, Commerce, uno.chefs) bind .Value for Navigation.Data, CommandParameter, DataContext, converters, ItemsSource and IsEnabled; narrowed to TwoWay input bindings.",
+      "differsFromUnoLint": "uno-lint flags every .Value binding: 9 hits in uno.chefs, 12 in Uno.Samples, all in working official code."
+    },
+    {
+      "id": "XBINDMODE",
+      "unoLint": null,
+      "status": "lab",
+      "profile": "recommended",
+      "gating": false,
+      "requires": [],
+      "title": "info: x:Bind with no Mode outside item templates (OneTime default)",
+      "why": "x:Bind defaults to OneTime, so a value that changes later never shows.",
+      "fix": {
+        "default": "x:Bind is OneTime by default: add Mode=OneWay for values that change, or a comment saying OneTime is intended."
+      },
+      "examples": {
+        "lang": "xaml",
+        "bad": "<TextBlock Text=\"{x:Bind ViewModel.Title}\" />",
+        "good": "<TextBlock Text=\"{x:Bind ViewModel.Title, Mode=OneWay}\" />",
+        "fixtures": ["xbindmode"]
+      },
+      "enforcement": { "build": null, "runtime": null },
+      "evidence": "Info only: getter-only computed properties are OneTime by design.",
+      "differsFromUnoLint": "Not in uno-lint."
+    }
+  ]
+}

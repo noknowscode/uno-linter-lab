@@ -3,9 +3,11 @@ name: test
 on:
   push:
   pull_request:
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays: catches a new Uno.Templates release that teaches a flagged pattern
 
 jobs:
-  fixtures:
+  lint:
     strategy:
       fail-fast: false
       matrix:
@@ -13,12 +15,36 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: PowerShell version
-        shell: pwsh
-        run: $PSVersionTable.PSVersion.ToString()
       - name: Write fixtures
         shell: pwsh
         run: ./lint-tests/New-Fixtures.ps1
-      - name: Run fixture and hook tests
+      - name: Fixture and hook tests
         shell: pwsh
         run: ./lint-tests/Test-SemanticLint.ps1
+
+  rulebook:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write fixtures
+        shell: pwsh
+        run: ./lint-tests/New-Fixtures.ps1
+      - name: Rulebook shape, coverage, examples and generated docs
+        shell: pwsh
+        run: ./lint-tests/Test-Rulebook.ps1
+
+  templates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Lint dotnet new unoapp output (latest Uno.Templates)
+        shell: pwsh
+        run: ./lint-tests/Test-Templates.ps1 -Json templates.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: template-report
+          path: templates.json

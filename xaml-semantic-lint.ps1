@@ -113,10 +113,24 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$StrictOnly = 'CARD', 'BACKBAR', 'CODEBEHIND', 'OVERLAY', 'SPACING', 'RADIUS'
 
-$Gating      = 'CARD', 'HEX', 'CSCOLOR', 'SPACING', 'RADIUS', 'TOKENTHEME', 'BACKBAR', 'CODEBEHIND', 'OVERLAY', 'RESPONSIVE', 'BUILTIN', 'ICON', 'PLATFORMLEAK', 'SYNCWAIT', 'BINDVALUE'
-$InfoRules   = 'XBINDMODE'
+# The rulebook is the single source for each rule's profile, gating, title and fix text; this
+# script owns detection only. rulebook/rules.json also feeds the docs and the agent rules.
+$Rulebook = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'rulebook/rules.json') -Raw | ConvertFrom-Json
+$RuleById = @{}; foreach ($r in $Rulebook.rules) { $RuleById[$r.id] = $r }
+$Gating     = @($Rulebook.rules | Where-Object gating | ForEach-Object id)
+$InfoRules  = @($Rulebook.rules | Where-Object { -not $_.gating } | ForEach-Object id)
+$StrictOnly = @($Rulebook.rules | Where-Object profile -eq 'strict' | ForEach-Object id)
+
+# Fix text for this project: the first feature-specific variant the project has, else the default.
+function Get-Fix([string] $rule, $ctx) {
+    $f = $RuleById[$rule].fix
+    foreach ($k in 'material', 'toolkit', 'navigation', 'mvux') {
+        if ($f.PSObject.Properties[$k] -and $ctx -and $ctx.$k) { return $f.$k }
+    }
+    $f.default
+}
+
 $PaletteName = '(?i)(palette|colou?rs?|tokens?)[^\\/]*\.xaml$'
 $IconName    = '(?i)icons?[^\\/]*\.xaml$'
 $InlineDataRx = [regex]::new('<(Path|PathIcon)\b[^>]*?\bData\s*=\s*"\s*(?:F[01]\s*)?[Mm]', 'Singleline')
@@ -496,7 +510,9 @@ function Get-CsIssues([string] $text, [string] $name, [string] $companionXaml, [
     $out = [System.Collections.Generic.List[object]]::new()
     $script:IsXaml = $false
     $ctx = Get-ProjectContext $fullPath $text
-    if ($name -match '(?i)\.xaml\.cs$') {
+    # Page and control code-behind only: App.xaml.cs wires app-level events (Frame.NavigationFailed
+    # in the dotnet new templates), which is not view logic.
+    if ($name -match '(?i)\.xaml\.cs$' -and $name -notmatch '(?i)^App\.xaml\.cs$') {
         foreach ($m in $HandlerRx.Matches($text)) {
             if (Test-Suppressed $text $m.Index 'codebehind') { continue }
             $out.Add((New-Finding 'CODEBEHIND' $text $m.Index "handler $($m.Groups[1].Value)"))
@@ -607,33 +623,11 @@ if ($Hook) {
         $leaf = Split-Path $file -Leaf
         # Advice follows what the project references, so a plain WinUI app gets WinUI answers.
         $ctx = Get-ProjectContext $file $(if ($full) { $full } else { $pieces -join "`n" })
-        $fix = @{
-            CARD       = 'utu:CardContentControl (Filled/Outlined/ElevatedCardContentControlStyle) + lightweight keys (CardCornerRadius, CardPadding, <Variant>CardContentBackground/BorderBrush).'
-            HEX        = $(if ($ctx.Material) { 'a Material role brush (PrimaryBrush, OnSurfaceBrush, SurfaceContainerHighBrush, OutlineVariantBrush, ErrorBrush...). The only colours an app defines live in its ColorPaletteOverride file; brand colour goes there. Status and chart colours map to Primary/Secondary/Tertiary/Error and their containers.' }
-                           else { 'a theme brush ({ThemeResource ...Brush}) from the app''s theme, or a colour defined once in the theme''s colour override file. A literal colour does not follow light/dark or brand changes.' })
-            CSCOLOR    = 'read the colour from theme resources (a Brush dependency property bound with {ThemeResource ...Brush}, or a lookup keyed on ActualTheme) and redraw on ActualThemeChanged.'
-            SPACING    = 'Uno.Themes Space* tokens: {StaticResource Space400Thickness} for Margin/Padding, {StaticResource Space200} for Spacing. Rescale the whole app with DefaultSpacing on the theme.'
-            RADIUS     = 'Uno.Themes Radius* tokens: {StaticResource Radius200CornerRadius}. Rescale with DefaultCornerRadius on the theme.'
-            TOKENTHEME = 'use a theme role brush; else define the key per theme in ThemeDictionaries; name it *Invariant/*OnDark/*OnLight/*Fixed only when its ground is fixed in both themes.'
-            BACKBAR    = 'utu:NavigationBar with a MainCommand AppBarButton; back navigation and the Android back gesture come with it.'
-            CODEBEHIND = $(if ($ctx.Toolkit) { 'utu:CommandExtensions.Command, commands on the model, utu:VisualStateManagerExtensions.States bound to model state, or Visibility bound to the model.' }
-                           else { 'commands on the model (ICommand), VisualStateManager states driven by model state, or Visibility bound to the model.' })
-            OVERLAY    = $(if ($ctx.Navigation) { 'uen:Navigation.Request="!Route" to a Page (opens as a flyout) with a DrawerFlyoutPresenter style; filter state lives in the model.' }
-                           else { 'a Flyout or ContentDialog, or Visibility bound to model state; filter state lives in the model.' })
-            RESPONSIVE = $(if ($ctx.Toolkit) { 'breakpoints are always {utu:Responsive} in XAML for a value, utu:ResponsiveView when the whole template changes (custom thresholds via a utu:ResponsiveLayout resource). No WinUI AdaptiveTrigger (not suppressible), never code-behind, never width flags on a view model.' }
-                           else { 'move the breakpoint into XAML: a VisualStateManager state with an AdaptiveTrigger (or add Uno Toolkit and use {utu:Responsive}). Never compare widths in code-behind or keep width flags on a view model.' })
-            BUILTIN    = 'use the platform/Toolkit control named above with lightweight styling before writing a custom control; then Windows Community Toolkit 8.x.'
-            PLATFORMLEAK = 'move the branch into a platform service (interface in shared code, implementation per head or in a Platforms/ partial) and inject it; models stay platform-neutral.'
-            SYNCWAIT   = 'await the task. If the caller cannot be async (constructor, property), start the load from a command or MVUX feed instead of blocking.'
-            BINDVALUE  = 'bind the state itself: {Binding State, Mode=TwoWay} for input, {Binding State} for display. The MVUX proxy already exposes the value; .Value shows empty and writes nothing. Inside a FeedView template bind {Binding Data.X}.'
-            XBINDMODE  = 'x:Bind is OneTime by default: add Mode=OneWay for values that change, or a comment saying OneTime is intended.'
-            ICON       = 'SymbolIcon/FontIcon on the Fluent symbol font, or keyed path data from one open icon set (Material Symbols, Fluent System Icons) in Icons.xaml via PathIcon Data="{StaticResource ...}". Never hand-draw icons. Illustrations get "xaml-lint: allow icon - illustration".'
-        }
         $rules = $issues | Select-Object -ExpandProperty Rule -Unique
         $context = @(
             "xaml-semantic-lint: this edit to $leaf added $($issues.Count) semantic-bypass pattern(s):"
             ($issues | ForEach-Object { "- $($_.Rule): $($_.Detail)" })
-            ($rules | ForEach-Object { "$_ fix: $($fix[$_])" })
+            ($rules | ForEach-Object { "$_ fix: $(Get-Fix $_ $ctx)" })
             'A deliberate exception gets "xaml-lint: allow <rule> - reason" in a comment directly above the element; if a framework mechanism failed, the reason names it and how to reproduce it.'
             $(if ($issues | Where-Object Detail -match 'AdaptiveTrigger') { 'AdaptiveTrigger hits have no exception: an allow comment does not suppress them. Replace them.' })
         ) -join "`n"
@@ -704,23 +698,7 @@ if ($Json) {
         findings = @($all | Select-Object Rule, File, Line, Detail)
     } | ConvertTo-Json -Depth 4
 } else {
-    $meaning = [ordered]@{
-        CARD       = 'Border with CornerRadius + fill/stroke/padding -> CardContentControl'
-        HEX        = 'hex literal outside ColorPaletteOverride -> Material role brush'
-        CSCOLOR    = 'colour literal in C# -> theme resource + redraw on theme change'
-        SPACING    = 'margin/padding/spacing literal -> Uno.Themes Space* token'
-        RADIUS     = 'corner radius literal -> Uno.Themes Radius* token'
-        TOKENTHEME = 'app brush with one value for both themes -> role, ThemeDictionaries, or *Invariant name'
-        BACKBAR    = 'hand-built back button -> utu:NavigationBar'
-        CODEBEHIND = 'event handler or Visibility toggle in code-behind -> commands, VSM extensions, regions'
-        OVERLAY    = 'overlay/sheet toggled in code-behind -> "!Route" flyout'
-        RESPONSIVE = 'AdaptiveTrigger or code-behind breakpoint -> utu:Responsive / utu:ResponsiveView'
-        BUILTIN    = 'custom control shadowing a platform/Toolkit control'
-        ICON       = 'inline or shape-built icon geometry -> icon font or keyed set data in Icons.xaml'
-        PLATFORMLEAK = 'platform branch in a model/view model -> platform service or Platforms/ partial'
-        SYNCWAIT   = 'blocking .Wait()/.Result/GetResult() -> await'
-        BINDVALUE  = '{Binding State.Value} on an MVUX model -> {Binding State}'
-    }
+    $meaning = @{}; foreach ($r in $Rulebook.rules) { $meaning[$r.id] = $r.title }
     "xaml-semantic-lint  $root  ($($files.Count) files, $($skipped.Count) dev/harness skipped, $profileName profile)"
     ''
     'Rule          Count   Supp  Meaning'

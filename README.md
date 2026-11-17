@@ -39,26 +39,16 @@ A plain WinUI/Fluent Uno Platform app is never told to use controls or tokens it
 
 **Strict** (`-Strict`): adds the opinionated rules CARD, BACKBAR, CODEBEHIND, OVERLAY, SPACING and RADIUS, and limits colours to the palette override file (a colour in `ThemeDictionaries` counts as a hit).
 
-| Rule | Profile | Catches | Use instead |
-|---|---|---|---|
-| HEX | both | Hex colour in XAML outside the palette override (recommended also allows `ThemeDictionaries`, theme seed colours and fully transparent `#00......`) | A theme brush |
-| CSCOLOR | both | Colour literal in C# (`Colors.Red`, `Color.FromArgb(...)`, `SKColors.X`) outside a `ColorPaletteOverride.cs` and dependency property defaults | Theme resources, redrawn on theme change |
-| TOKENTHEME | both | App `*Brush` resource with one value for both themes (not lightweight styling inside one control's `Resources`, not `StaticResource` aliases) | A theme brush, or `ThemeDictionaries` |
-| RESPONSIVE | both | Width checks in code-behind; with Toolkit, every WinUI `AdaptiveTrigger` | `{utu:Responsive}` / `utu:ResponsiveView`, or a `VisualStateManager` state without Toolkit |
-| BUILTIN | both | Custom control named like a platform or Toolkit control | `RatingControl`, `ProgressBar`, `utu:Chip`... |
-| ICON | both | Inline path geometry or shapes drawn as an icon outside `Icons*.xaml` | `SymbolIcon`/`FontIcon`, or keyed data in `Icons.xaml` |
-| PLATFORMLEAK | both | Platform branch (`#if __ANDROID__`, `OperatingSystem.Is*()`) in a model | A platform service behind an interface |
-| SYNCWAIT | both | `.Wait()`, `.Result`, `.GetAwaiter().GetResult()` (not after a completion check, not in tests or mocks) | `await` |
-| BINDVALUE | both | `{Binding State.Value, Mode=TwoWay}` on an input property in an MVUX project | `{Binding State, Mode=TwoWay}` |
-| CARD | strict | `Border` with a corner radius and a fill, stroke or padding (not circles, pills, badges, image clips or one-corner radii) | `utu:CardContentControl` |
-| BACKBAR | strict | `Navigation.Request="-"` on a page with no `NavigationBar` (not in a `ContentDialog`) | `utu:NavigationBar` with a `MainCommand` |
-| CODEBEHIND | strict | Event handlers and `.Visibility =` in code-behind | Commands, visual states, bindings |
-| OVERLAY | strict | Overlay, sheet or drawer toggled in code-behind | A flyout, a dialog, or a `!Route` flyout with Navigation |
-| SPACING | strict | Margin, padding or spacing literal | Uno.Themes `Space*` tokens |
-| RADIUS | strict | Corner radius literal | Uno.Themes `Radius*` tokens |
+Every rule, with its reason, bad and good example, fixes per project feature, evidence and how it maps to uno-lint, is in [rulebook/RULES.md](rulebook/RULES.md).
 
-Info (reported, never gating): XBINDMODE (`x:Bind` with no `Mode`), TOKEN, FONTSIZE, UTURESP, TEMPLATE, WORKAROUND.
+## The rulebook
 
+`rulebook/rules.json` is the single source for each rule. The lint reads each rule's profile, the features it needs, its title and its fix text from it; the script itself only holds detection. Two documents are generated from it with `rulebook/New-RuleDocs.ps1`:
+
+- `RULES.md`: the human reference.
+- `agent-rules.md`: a compact do/don't list for coding agents, for skills, agent instructions or MCP usage rules.
+
+Each rule's bad and good example is tested: the bad one must trigger the rule and the good one must not. `lint-tests/Test-Rulebook.ps1` checks that, plus the rulebook's shape, that the lint and the rulebook list the same rules, and that the generated documents are current.
 ## Suppressing a hit
 
 A deliberate exception gets an allow comment with a reason:
@@ -85,16 +75,23 @@ Color mark = Colors.Red; // xaml-lint: allow cscolor - logo mark, fixed in both 
 
 ```powershell
 pwsh -File lint-tests/New-Fixtures.ps1        # rewrite the fixture tree
-pwsh -File lint-tests/Test-SemanticLint.ps1   # run every case and the hook payload shapes
+pwsh -File lint-tests/Test-SemanticLint.ps1   # every fixture case and the hook payload shapes
+pwsh -File lint-tests/Test-Rulebook.ps1       # rulebook shape, coverage, examples, generated docs
+pwsh -File lint-tests/Test-Templates.ps1      # lint fresh `dotnet new unoapp` projects
 ```
 
-Each folder under `lint-tests/fixtures/` holds source files and an `expected.json` with the exact count per rule. Unlisted rules expect 0; `suppressed` checks the Supp counts, `lines` checks reported line numbers, and `"profile": "recommended"` runs a case without `-Strict`. The `corpus-*` cases reproduce false positives found in Uno Platform's own apps and samples. CI runs the suite on Windows, macOS and Linux.
+Each folder under `lint-tests/fixtures/` holds source files and an `expected.json` with the exact count per rule. Unlisted rules expect 0; `suppressed` checks the Supp counts, `lines` checks reported line numbers, and `"profile": "recommended"` runs a case without `-Strict`. The `corpus-*` and `template-*` cases reproduce false positives found in Uno Platform's own apps, samples and templates.
+
+`Test-Templates.ps1` installs the latest Uno.Templates into a private template store, generates 12 configurations (presets, MVUX/MVVM/none, XAML/C# Markup, every theme, authentication, Toolkit) and lints each. A fresh project is what everyone copies from, so every configuration must pass the recommended profile. CI runs it every Monday so a template release that teaches a flagged pattern shows up within a week.
+
+CI runs the lint tests on Windows, macOS and Linux, and the rulebook and template checks on Linux.
 
 `Compare-Corpus.ps1` runs two versions of the lint on real apps and lists every finding that appeared or disappeared, which is how a rule change is checked for false positives before it moves on.
 
 ## How a rule gets in
 
-1. Write the rule in `xaml-semantic-lint.ps1`.
+1. Add the rule to `rulebook/rules.json` with a bad and a good example, and its detection to `xaml-semantic-lint.ps1`.
 2. Add fixtures: a hit, a near miss that must stay clean, and a suppressed hit.
-3. Run `Compare-Corpus.ps1` on real apps and explain every added or removed finding.
-4. Only then propose it for uno-lint.
+3. Run `Compare-Corpus.ps1` on real apps and explain every added or removed finding; record it in the rule's `evidence`.
+4. Regenerate the docs, run all three test scripts.
+5. Only then propose it for uno-lint.

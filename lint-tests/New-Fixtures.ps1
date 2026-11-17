@@ -791,6 +791,29 @@ $cases['corpus-resources'] = @{
 '@
 }
 
+# dotnet new unoapp (Uno.Templates 7.0.22, blank preset): App.xaml.cs wires Frame.NavigationFailed;
+# app-level wiring is not page code-behind. A page handler next to it still counts.
+$cases['template-app'] = @{
+  'expected.json' = '{"CODEBEHIND":1}'
+  'App.xaml.cs' = @"
+namespace TemplateApp;
+public partial class App : Application
+{
+    void OnNavigationFailed(object sender, NavigationFailedEventArgs e)
+    {
+        throw new InvalidOperationException(`$"Failed to load {e.SourcePageType.FullName}: {e.Exception}");
+    }
+}
+"@
+  'MainPage.xaml.cs' = @"
+namespace TemplateApp;
+public sealed partial class MainPage : Page
+{
+    private void OnRefreshClick(object sender, RoutedEventArgs e) { }
+}
+"@
+}
+
 # Strict profile: colours belong in the palette override only, ThemeDictionaries included.
 $cases['hex-themedict-strict'] = @{
   'expected.json' = '{"HEX":1}'
