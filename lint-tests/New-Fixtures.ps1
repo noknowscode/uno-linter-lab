@@ -459,11 +459,374 @@ $cases['bindvalue-mvvm'] = @{
 '@
 }
 
+# ---------------------------------------------------------------- project context: plain WinUI app (no Toolkit, no Uno.Themes)
+$cases['plain-winui'] = @{
+  'expected.json' = '{"HEX":1,"RESPONSIVE":1}'
+  'App.csproj' = @'
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup><UnoFeatures>SkiaRenderer;Mvvm</UnoFeatures></PropertyGroup>
+</Project>
+'@
+  'MainPage.xaml' = @'
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Padding="16">
+    <VisualStateManager.VisualStateGroups><VisualStateGroup><VisualState><VisualState.StateTriggers>
+      <AdaptiveTrigger MinWindowWidth="720" />
+    </VisualState.StateTriggers></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups>
+    <Border CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Margin="12" />
+    <TextBlock Foreground="#FF0000" />
+  </Grid>
+</Page>
+'@
+  'MainPage.xaml.cs' = @'
+namespace App;
+public sealed partial class MainPage : Page
+{
+    void Apply() { if (ActualWidth < 600) { } }
+}
+'@
+}
+
+# ---------------------------------------------------------------- Toolkit under another prefix
+$cases['toolkit-prefix'] = @{
+  'expected.json' = '{"RESPONSIVE":1}'
+  'Page.xaml' = @'
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:toolkit="using:Uno.Toolkit.UI">
+  <StackPanel Orientation="{toolkit:Responsive Narrow=Vertical, Wide=Horizontal}">
+    <toolkit:ShadowContainer Background="{ThemeResource SurfaceBrush}">
+      <Border CornerRadius="{StaticResource Radius200CornerRadius}" Padding="{StaticResource Space400Thickness}" />
+    </toolkit:ShadowContainer>
+    <VisualStateManager.VisualStateGroups><VisualStateGroup><VisualState><VisualState.StateTriggers>
+      <AdaptiveTrigger MinWindowWidth="720" />
+    </VisualState.StateTriggers></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups>
+  </StackPanel>
+</Page>
+'@
+}
+
+# ---------------------------------------------------------------- file outside any project: only its xmlns counts
+$cases['no-project'] = @{
+  'expected.json' = '{"CARD":1}'
+  'Loose.xaml' = @'
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:utu="using:Uno.Toolkit.UI">
+  <Border CornerRadius="{StaticResource Radius200CornerRadius}" Background="{ThemeResource SurfaceBrush}" Margin="16" />
+</Page>
+'@
+}
+
+# ---------------------------------------------------------------- features declared in Directory.Build.props
+$cases['dirbuildprops'] = @{
+  'expected.json' = '{"CARD":1,"SPACING":1}'
+  'Directory.Build.props' = @'
+<Project>
+  <PropertyGroup><UnoFeatures>Material;Toolkit;Navigation</UnoFeatures></PropertyGroup>
+</Project>
+'@
+  'App.csproj' = @'
+<Project Sdk="Uno.Sdk"><PropertyGroup><TargetFrameworks>net10.0-desktop</TargetFrameworks></PropertyGroup></Project>
+'@
+  'Page.xaml' = @'
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+  <Border CornerRadius="{StaticResource Radius200CornerRadius}" Background="{ThemeResource SurfaceBrush}" Margin="16" />
+</Page>
+'@
+}
+
+# ---------------------------------------------------------------- Windows line endings (written as CRLF below)
+$cases['crlf'] = @{
+  'expected.json' = '{"HEX":1,"suppressed":{"HEX":1}}'
+  'Crlf.xaml' = @'
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+  <StackPanel>
+    <!-- xaml-lint: allow hex - chart series colour -->
+    <TextBlock
+        Text="A"
+        Foreground="#FF0000" />
+    <TextBlock Foreground="#00FF00" />
+  </StackPanel>
+</Page>
+'@
+}
+
+# ================================================================ cases from the public corpus run (2026-11-17)
+# Each reproduces a false positive found in Uno Platform's own apps and samples.
+
+# uno.chefs: an image clip and a quantity badge are not cards; a list-item container is.
+$cases['corpus-card'] = @{
+  'expected.json' = '{"CARD":1}'
+  'Recipes.xaml' = @'
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:utu="using:Uno.Toolkit.UI">
+  <StackPanel>
+    <Border utu:AutoLayout.PrimaryAlignment="Stretch"
+            Background="{ThemeResource BackgroundBrush}"
+            CornerRadius="{StaticResource Radius300CornerRadius}">
+      <Image HorizontalAlignment="Center"
+             Source="{Binding CookbookImages.SecondImage}"
+             Stretch="UniformToFill" />
+    </Border>
+    <Border Background="{ThemeResource BackgroundBrush}" Padding="{StaticResource Space200Thickness}" CornerRadius="{StaticResource Radius100CornerRadius}">
+      <TextBlock Text="{Binding Quantity}" Style="{StaticResource BodySmall}" />
+    </Border>
+    <Border Background="{ThemeResource SurfaceBrush}" CornerRadius="{StaticResource Radius100CornerRadius}">
+      <utu:AutoLayout Spacing="{StaticResource Space200}">
+        <TextBlock Text="{Binding Name}" />
+        <TextBlock Text="{Binding Description}" />
+      </utu:AutoLayout>
+    </Border>
+  </StackPanel>
+</Page>
+'@
+}
+
+# uno.chefs: Navigation.Request="-" in a ContentDialog closes it; it is not a back button.
+$cases['corpus-dialog'] = @{
+  'expected.json' = '{}'
+  'CompletedDialog.xaml' = @'
+<ContentDialog x:Class="App.CompletedDialog"
+               xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+               xmlns:uen="using:Uno.Extensions.Navigation.UI">
+  <Button Content="Done" uen:Navigation.Request="-" />
+</ContentDialog>
+'@
+}
+
+# workshops + uno.chefs: C# Markup palette overrides, Theme.Colors keys and dependency property defaults.
+$cases['corpus-cscolor'] = @{
+  'expected.json' = '{"CSCOLOR":1}'
+  'ColorPaletteOverride.cs' = @'
+namespace App;
+public static class ColorPaletteOverride
+{
+    public static ResourceDictionary Build() => new ResourceDictionary()
+        .Add<Color>(Theme.Colors.Background.Default.Key, "#FCFCFF", "#1A1C1E")
+        .Add<Color>(Theme.Colors.Primary.Default.Key, Colors.Purple, Colors.Plum);
+}
+'@
+  'ChartControl.xaml.cs' = @'
+namespace App;
+public sealed partial class ChartControl : UserControl
+{
+    public static readonly DependencyProperty CarbBrushProperty =
+        DependencyProperty.Register("CarbBrush", typeof(SolidColorBrush), typeof(ChartControl), new PropertyMetadata(new SolidColorBrush(Colors.Black)));
+    object Key => Theme.Colors.Surface.Default.Key;
+    Color Highlight => Colors.Red;
+}
+'@
+}
+
+# Uno.Samples MvuxHowTos, ToDo, Commerce + uno.chefs: .Value is used on purpose outside two-way input.
+$cases['corpus-bindvalue'] = @{
+  'expected.json' = '{"BINDVALUE":1}'
+  'App.csproj' = @'
+<Project Sdk="Uno.Sdk"><PropertyGroup><UnoFeatures>Material;Toolkit;MVUX;Navigation</UnoFeatures></PropertyGroup></Project>
+'@
+  'PeoplePage.xaml' = @'
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:uen="using:Uno.Extensions.Navigation.UI">
+  <StackPanel DataContext="{Binding NewPerson.Value}">
+    <Button Command="{Binding Save}" CommandParameter="{Binding NewPerson.Value}" />
+    <Button uen:Navigation.Request="Filters" uen:Navigation.Data="{Binding Filter.Value, Mode=TwoWay}" />
+    <Border Style="{Binding Entity.Value, Converter={StaticResource StyleConverter}}" />
+    <TextBlock Text="{Binding CurrentProduct.Description.Value}" />
+    <TextBox Text="{Binding Name.Value, Mode=TwoWay}" />
+  </StackPanel>
+</Page>
+'@
+}
+
+# uno.ch9: a #if after a blank line is reported on the #if line, not the blank line above.
+$cases['corpus-platformleak'] = @{
+  'expected.json' = '{"PLATFORMLEAK":1,"lines":{"PLATFORMLEAK":[5]}}'
+  'EpisodeViewModel.cs' = @'
+namespace App;
+public partial class EpisodeViewModel
+{
+
+#if !__WASM__
+    bool CanDownload => true;
+#endif
+}
+'@
+}
+
+# uno.ch9 + uno.chefs: .Result after a completion check, and mock endpoints, do not block the UI.
+$cases['corpus-syncwait'] = @{
+  'expected.json' = '{"SYNCWAIT":1}'
+  'TaskNotifier.cs' = @'
+namespace App;
+public class TaskNotifier<T>
+{
+    public Task<T> Task { get; }
+    public T Value => Task.Status == TaskStatus.RanToCompletion
+        ? Task.Result
+        : default;
+    public bool Done => Task.IsCompleted && Task.Result is not null;
+    void Flush(Task pending) => pending.Wait();
+}
+'@
+  'Mocks/MockRecipeEndpoints.cs' = @'
+namespace App.Mocks;
+public class MockRecipeEndpoints
+{
+    string Read(HttpRequestMessage request) => request.Content.ReadAsStringAsync().Result;
+}
+'@
+}
+
+# Default (recommended) profile: no strict-only rules, ThemeDictionaries colours allowed.
+$cases['profile-recommended'] = @{
+  'expected.json' = '{"profile":"recommended","HEX":1,"RESPONSIVE":1}'
+  'Page.xaml' = @'
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:utu="using:Uno.Toolkit.UI">
+  <Page.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light"><SolidColorBrush x:Key="ProteinBrush">#159BFF</SolidColorBrush></ResourceDictionary>
+        <ResourceDictionary x:Key="Dark"><SolidColorBrush x:Key="ProteinBrush">#7FC4FF</SolidColorBrush></ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Page.Resources>
+  <StackPanel Margin="16">
+    <Border CornerRadius="8" Background="{ThemeResource SurfaceBrush}" Padding="12" />
+    <TextBlock Foreground="#FF0000" />
+    <VisualStateManager.VisualStateGroups><VisualStateGroup><VisualState><VisualState.StateTriggers>
+      <AdaptiveTrigger MinWindowWidth="720" />
+    </VisualState.StateTriggers></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups>
+  </StackPanel>
+</Page>
+'@
+}
+
+# Uno.Samples MauiEmbedding: .NET MAUI XAML is not WinUI XAML and is not linted.
+$cases['corpus-maui'] = @{
+  'expected.json' = '{}'
+  'ToastControl.xaml' = @'
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+  <Border Stroke="#D2D2D2" BackgroundColor="#FF0000" Padding="12" StrokeShape="RoundRectangle 8" />
+</ContentView>
+'@
+}
+
+# uno.gallery: lightweight styling in one control's Resources is not an app brush; a page-level one is.
+# Fully transparent hex (#00FFFFFF) is a hit-test fill, not a colour.
+$cases['corpus-lightweight'] = @{
+  'expected.json' = '{"TOKENTHEME":1}'
+  'StylingPage.xaml' = @'
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Page.Resources>
+    <SolidColorBrush x:Key="PageAccentBrush" Color="{ThemeResource PrimaryColor}" />
+  </Page.Resources>
+  <StackPanel>
+    <Button Content="Overridden">
+      <Button.Resources>
+        <SolidColorBrush x:Key="ButtonBorderBrush" Color="{ThemeResource PrimaryColor}" />
+      </Button.Resources>
+    </Button>
+    <Border BorderBrush="#00FFFFFF" Background="#0000" />
+  </StackPanel>
+</Page>
+'@
+}
+
+# Uno.Samples GrialKitApp: a MAUI file opening with two processing instructions and a BOM.
+$cases['corpus-maui-pi'] = @{
+  'expected.json' = '{}'
+  'Colors.xaml' = "$([char]0xFEFF)" + @'
+<?xml version="1.0" encoding="UTF-8" ?>
+<?xaml-comp compile="true" ?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+  <Color x:Key="Blue100Accent">#3E8EED</Color>
+</ResourceDictionary>
+'@
+}
+
+# Uno.Samples MauiEmbedding: a whole .NET MAUI project (UseMaui) is skipped, C# included.
+$cases['corpus-maui-project'] = @{
+  'expected.json' = '{}'
+  'Controls.MauiControls.csproj' = @'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><UseMaui>true</UseMaui></PropertyGroup>
+</Project>
+'@
+  'SeriesSelection.xaml.cs' = @'
+namespace Controls;
+public partial class SeriesSelection
+{
+    object Brush => new SolidColorBrush(Color.FromArgb("#74BD6F"));
+    void OnTapped(object sender, EventArgs e) { Legend.Visibility = Visibility.Collapsed; }
+}
+'@
+}
+
+# Uno.Samples: converters keyed *Brush, StaticResource aliases and theme seed colours are not app colours.
+$cases['corpus-resources'] = @{
+  'expected.json' = '{"TOKENTHEME":1,"HEX":1}'
+  'App.xaml' = @'
+<Application xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:utu="using:Uno.Toolkit.UI"
+             xmlns:conv="using:App.Converters">
+  <Application.Resources>
+    <ResourceDictionary>
+      <utu:ThemeColors PrimarySeed="#0D6E6E" SecondarySeed="#3B82F6"
+                       TertiarySeed="#F59E0B" />
+      <conv:HexColorToBrushConverter x:Key="HexToBrush" />
+      <StaticResource x:Key="GridLinesBrush" ResourceKey="SystemControlHighlightListLowBrush" />
+      <SolidColorBrush x:Key="FlowInfoBrush" Color="#8A8A8E" />
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>
+'@
+}
+
+# Strict profile: colours belong in the palette override only, ThemeDictionaries included.
+$cases['hex-themedict-strict'] = @{
+  'expected.json' = '{"HEX":1}'
+  'Brushes.xaml' = @'
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Light"><SolidColorBrush x:Key="ProteinBrush">#159BFF</SolidColorBrush></ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>
+'@
+}
+
+# Cases that test rules gated on Uno Toolkit / Uno.Themes / Navigation get a project that has them.
+$fullProject = @'
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-desktop</TargetFrameworks>
+    <UnoFeatures>Material;Toolkit;Navigation</UnoFeatures>
+  </PropertyGroup>
+</Project>
+'@
+foreach ($k in @($cases.Keys)) {
+  if ($k -in 'no-project', 'plain-winui', 'clean', 'corpus-maui-project') { continue }
+  if (-not $cases[$k].ContainsKey('App.csproj')) { $cases[$k]['App.csproj'] = $fullProject }
+}
+
 foreach ($case in $cases.GetEnumerator()) {
   $dir = Join-Path $root $case.Key
   New-Item -ItemType Directory $dir -Force | Out-Null
   foreach ($f in $case.Value.GetEnumerator()) {
-    Set-Content -LiteralPath (Join-Path $dir $f.Key) -Value $f.Value -NoNewline
+    $value = $f.Value -replace "`r`n", "`n"
+    if ($case.Key -eq 'crlf') { $value = $value -replace "`n", "`r`n" }
+    $target = Join-Path $dir $f.Key
+    New-Item -ItemType Directory (Split-Path $target -Parent) -Force | Out-Null
+    Set-Content -LiteralPath $target -Value $value -NoNewline
   }
 }
 "Wrote $($cases.Count) fixture cases to $root"

@@ -1,0 +1,21 @@
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:utu="using:Uno.Toolkit.UI">
+  <StackPanel>
+    <Border utu:AutoLayout.PrimaryAlignment="Stretch"
+            Background="{ThemeResource BackgroundBrush}"
+            CornerRadius="{StaticResource Radius300CornerRadius}">
+      <Image HorizontalAlignment="Center"
+             Source="{Binding CookbookImages.SecondImage}"
+             Stretch="UniformToFill" />
+    </Border>
+    <Border Background="{ThemeResource BackgroundBrush}" Padding="{StaticResource Space200Thickness}" CornerRadius="{StaticResource Radius100CornerRadius}">
+      <TextBlock Text="{Binding Quantity}" Style="{StaticResource BodySmall}" />
+    </Border>
+    <Border Background="{ThemeResource SurfaceBrush}" CornerRadius="{StaticResource Radius100CornerRadius}">
+      <utu:AutoLayout Spacing="{StaticResource Space200}">
+        <TextBlock Text="{Binding Name}" />
+        <TextBlock Text="{Binding Description}" />
+      </utu:AutoLayout>
+    </Border>
+  </StackPanel>
+</Page>

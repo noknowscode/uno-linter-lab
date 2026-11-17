@@ -93,6 +93,7 @@
   Exit code (Path mode): 0 = clean, 1 = gating findings, 2 = bad input.
   Hook mode always exits 0 and reports only findings inside the text the edit added.
 #>
+#Requires -Version 7.0
 [CmdletBinding(DefaultParameterSetName = 'Path')]
 param(
     [Parameter(ParameterSetName = 'Path', Position = 0)]
@@ -104,10 +105,15 @@ param(
     [Parameter(ParameterSetName = 'Path')]
     [switch] $IncludeDev,
     [Parameter(ParameterSetName = 'Hook')]
-    [switch] $Hook
+    [switch] $Hook,
+    # Strict profile: adds the opinionated rules (CARD, BACKBAR, CODEBEHIND, OVERLAY, SPACING, RADIUS)
+    # and limits colours to the palette override. The default profile runs rules that hold for any
+    # Uno Platform app.
+    [switch] $Strict
 )
 
 $ErrorActionPreference = 'Stop'
+$StrictOnly = 'CARD', 'BACKBAR', 'CODEBEHIND', 'OVERLAY', 'SPACING', 'RADIUS'
 
 $Gating      = 'CARD', 'HEX', 'CSCOLOR', 'SPACING', 'RADIUS', 'TOKENTHEME', 'BACKBAR', 'CODEBEHIND', 'OVERLAY', 'RESPONSIVE', 'BUILTIN', 'ICON', 'PLATFORMLEAK', 'SYNCWAIT', 'BINDVALUE'
 $InfoRules   = 'XBINDMODE'
@@ -130,11 +136,15 @@ $RadiusResRx = [regex]::new('<CornerRadius\b[^>]*>\s*([\d.]+(?:\s*[, ]\s*[\d.]+)
 $SetterRx    = [regex]::new('<Setter\s+Property\s*=\s*"(Margin|Padding|Spacing|RowSpacing|ColumnSpacing|CornerRadius)"\s+Value\s*=\s*"\s*(-?[\d.]+(?:\s*[, ]\s*-?[\d.]+)*)\s*"')
 $FontSizeRx  =[regex]::new('\bFontSize\s*=\s*"\s*[\d.]+\s*"')
 # Constructors only count with a numeric first argument: new SKColor(c.R, c.G, c.B, c.A) converts a theme colour.
-$CsColorRx   = [regex]::new('\b(?:Color|ColorHelper)\.From(?:Argb|Rgb)\s*\(\s*(?:0x|\d)|\bnew\s+SKColor\s*\(\s*(?:0x|\d)|\bSKColor\.Parse\s*\(|\bSKColors\.(?!Transparent\b|Empty\b)\w+|\bColors\.(?!Transparent\b)\w+|"#(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})"')
+$CsColorRx   = [regex]::new('\b(?:Color|ColorHelper)\.From(?:Argb|Rgb)\s*\(\s*(?:0x|\d)|\bnew\s+SKColor\s*\(\s*(?:0x|\d)|\bSKColor\.Parse\s*\(|\bSKColors\.(?!Transparent\b|Empty\b)\w+|(?<!\bTheme\.)\bColors\.(?!Transparent\b)\w+|"#(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})"')
 $CsThickRx   = [regex]::new('\bnew\s+(Thickness|CornerRadius)\s*\(\s*(-?[\d.]+(?:\s*,\s*-?[\d.]+)*)\s*\)')
-$BrushKeyRx  = [regex]::new('x:Key\s*=\s*"([A-Za-z0-9_.]+Brush)"')
+# Brush resources only: a *Brush element (SolidColorBrush, LinearGradientBrush...) keyed *Brush.
+# Converters keyed *Brush and <StaticResource> aliases of an existing brush are not new colours.
+$BrushKeyRx  = [regex]::new('<(?:\w+:)?\w*Brush\b[^>]*?\bx:Key\s*=\s*"([A-Za-z0-9_.]+Brush)"', 'Singleline')
 $TemplateRx  = [regex]::new('<ControlTemplate\b.*?</ControlTemplate>', 'Singleline')
-$ShadowRx    = [regex]::new('<utu:ShadowContainer\b.*?</utu:ShadowContainer>', 'Singleline')
+# Any namespace prefix: apps declare Uno Toolkit as utu:, toolkit:, ut: and so on.
+$ShadowRx    = [regex]::new('<(\w+):ShadowContainer\b.*?</\1:ShadowContainer>', 'Singleline')
+$ControlResRx = [regex]::new('<((?:\w+:)?(\w+))\.Resources>.*?</\1\.Resources>', 'Singleline')
 $ThemeDictRx = [regex]::new('<ResourceDictionary\.ThemeDictionaries>.*?</ResourceDictionary\.ThemeDictionaries>', 'Singleline')
 $BackRx      = [regex]::new('Navigation\.Request\s*=\s*"-"')
 $HandlerRx   = [regex]::new('void\s+(\w+)\s*\(\s*object\??\s+sender\s*,')
@@ -150,7 +160,7 @@ $XBindRx     = [regex]::new('(\w+)\s*=\s*"\{x:Bind\s+([\w.]+\.[\w.]+)\s*(,[^}]*)
 $XBindSkip   = '(?i)^(Click|Tapped|DoubleTapped|Loaded|Unloaded|Toggled|ItemClick|\w*Changed|\w*Pressed|\w*Released|\w*Requested|\w*Invoked|\w*Command|CommandParameter|DataContext)$'
 $DataTplRx   = [regex]::new('<DataTemplate\b.*?</DataTemplate>', 'Singleline')
 $ModelName   = '(?i)(View)?Model\.cs$'
-$PlatIfRx    = [regex]::new('(?m)^\s*#(?:el)?if\b.*\b(__[A-Z]+__|HAS_UNO\w*|WINDOWS|WINAPPSDK)\b')
+$PlatIfRx    = [regex]::new('(?m)^[ \t]*#(?:el)?if\b.*\b(__[A-Z]+__|HAS_UNO\w*|WINDOWS|WINAPPSDK)\b')
 $PlatApiRx   = [regex]::new('\b(OperatingSystem\.Is\w+|RuntimeInformation\.IsOSPlatform)\s*\(')
 $TestFile    = '(?i)\.Tests?[\\/]|Tests?\.cs$'
 $SyncWaitRx  = [regex]::new('\.Wait\(\s*\)|\.GetAwaiter\(\)\s*\.GetResult\(\)|Async\([^;{}]*?\)\s*\.Result\b|\b\w*[Tt]ask\.Result\b')
@@ -170,25 +180,72 @@ $BuiltinMap = @(
     @('(?i)bar$',                               'ProgressBar or utu:NavigationBar',                'Bar')
 )
 
-$BindValueRx = [regex]::new('\{Binding\s+(?:Path\s*=\s*)?([\w.]*\w\.Value)\s*[,}]')
-$script:MvuxCache = @{}
-# The nearest .csproj above the file decides: UnoFeatures Mvux, or a Uno.Extensions.Reactive reference.
-function Test-ProjectUsesMvux([string] $file) {
-    $dir = Split-Path $file -Parent
+# Only a TwoWay binding on an input property: Uno Platform's own MVUX samples bind .Value for
+# Navigation.Data, CommandParameter, DataContext and converters, so those are not flagged.
+$BindValueRx = [regex]::new('(?<!Navigation\.)\b(Text|IsChecked|IsOn|Value|SelectedItem|SelectedIndex|SelectedValue|Date|Time|SelectedDate|SelectedTime)\s*=\s*"\{Binding\s+(?:Path\s*=\s*)?([\w.]*\w\.Value)\s*,[^}]*\bMode\s*=\s*TwoWay\b[^}]*\}"')
+# Project context: which Uno Platform features the file's project references. Rules whose advice
+# needs a feature only run when the project has it (as uno-lint does), so a plain WinUI/Fluent app
+# is never told to use Toolkit controls or Uno.Themes tokens it does not have.
+# Sources: the nearest .csproj above the file, every Directory.Build.props / Directory.Packages.props
+# from there up, and the project's App.xaml; plus the file's own xmlns declarations.
+$script:DirProject = @{}
+$script:ProjectCtx = @{}
+function Find-Project([string] $dir) {
+    $seen = [System.Collections.Generic.List[string]]::new()
+    $found = $null
     while ($dir) {
-        if ($script:MvuxCache.ContainsKey($dir)) { return $script:MvuxCache[$dir] }
-        $proj = Get-ChildItem -LiteralPath $dir -Filter *.csproj -File -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($proj) {
-            $c = Get-Content -LiteralPath $proj.FullName -Raw
-            $uses = $c -match '(?is)<UnoFeatures>[^<]*\bMvux\b' -or $c -match 'Uno\.Extensions\.Reactive'
-            $script:MvuxCache[$dir] = $uses
-            return $uses
-        }
+        if ($script:DirProject.ContainsKey($dir)) { $found = $script:DirProject[$dir]; break }
+        $seen.Add($dir)
+        $p = Get-ChildItem -LiteralPath $dir -Filter *.csproj -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($p) { $found = $p.FullName; break }
         $parent = Split-Path $dir -Parent
-        if ($parent -eq $dir) { break }
+        if (-not $parent -or $parent -eq $dir) { break }
         $dir = $parent
     }
-    $false
+    foreach ($d in $seen) { $script:DirProject[$d] = $found }
+    $found
+}
+
+function Get-ProjectContext([string] $file, [string] $text = '') {
+    $proj = if ($file) { Find-Project (Split-Path $file -Parent) } else { $null }
+    $base = @{ Project = $proj; Toolkit = $false; Themes = $false; Material = $false; Navigation = $false; Mvux = $false; Maui = $false }
+    if ($proj) {
+        if (-not $script:ProjectCtx.ContainsKey($proj)) {
+            $parts = [System.Collections.Generic.List[string]]::new()
+            $parts.Add((Get-Content -LiteralPath $proj -Raw))
+            $d = Split-Path $proj -Parent
+            $app = Join-Path $d 'App.xaml'
+            if (Test-Path -LiteralPath $app) { $parts.Add((Get-Content -LiteralPath $app -Raw)) }
+            while ($d) {
+                foreach ($n in 'Directory.Build.props', 'Directory.Packages.props') {
+                    $f = Join-Path $d $n
+                    if (Test-Path -LiteralPath $f) { $parts.Add((Get-Content -LiteralPath $f -Raw)) }
+                }
+                $parent = Split-Path $d -Parent
+                if (-not $parent -or $parent -eq $d) { break }
+                $d = $parent
+            }
+            $all = $parts -join "`n"
+            $features = ([regex]::Matches($all, '(?is)<UnoFeatures>(.*?)</UnoFeatures>') | ForEach-Object { $_.Groups[1].Value }) -join ';'
+            $script:ProjectCtx[$proj] = @{
+                Toolkit    = $features -match '(?i)\bToolkit\b' -or $all -match 'Uno\.Toolkit'
+                Material   = $features -match '(?i)\bMaterial\b' -or $all -match 'Uno\.Material|\bMaterial(Toolkit)?Theme\b'
+                Themes     = $features -match '(?i)\b(Material|Cupertino|Simple\w*)\b' -or $all -match 'Uno\.(Themes|Material|Cupertino|Simple)|\b(Material|Cupertino|Simple)(Toolkit)?Theme\b'
+                Navigation = $features -match '(?i)\bNavigation\b' -or $all -match 'Uno\.Extensions\.Navigation'
+                Mvux       = $features -match '(?i)\bMvux\b' -or $all -match 'Uno\.Extensions\.Reactive'
+                # A .NET MAUI project (for example MAUI controls embedded in an Uno Platform app)
+                # uses MAUI XAML and APIs; none of these rules apply to it.
+                Maui       = (Get-Content -LiteralPath $proj -Raw) -match '(?i)<UseMaui>\s*true\s*</UseMaui>'
+            }
+        }
+        foreach ($k in $script:ProjectCtx[$proj].Keys) { $base[$k] = $script:ProjectCtx[$proj][$k] }
+    }
+    # A file's own namespace declarations prove a reference, including files outside any project.
+    if ($text -match 'using:Uno\.Toolkit\.UI') { $base.Toolkit = $true }
+    if ($text -match 'using:Uno\.Extensions\.Navigation') { $base.Navigation = $true }
+    if ($text -match 'using:Uno\.Extensions\.Reactive') { $base.Mvux = $true }
+    if ($text -match 'using:Uno\.(Material|Themes|Cupertino)') { $base.Themes = $true }
+    [pscustomobject]$base
 }
 
 function Test-NonZero([string] $values) {
@@ -281,6 +338,11 @@ function Test-Suppressed([string] $text, [int] $index, [string] $rule) {
 # a pill (radius >= half the Height), a chip (radius 12+ around one TextBlock or icon).
 # Only literal radii are judged; a {StaticResource} radius stays a CARD hit.
 function Test-CardShapeExempt([string] $tag, [string] $text, [int] $after) {
+    # One child: text or an icon makes a badge or chip; an Image makes an image clip.
+    if ($tag -notmatch '/>\s*$') {
+        $body = $text.Substring($after, [Math]::Min(1500, $text.Length - $after))
+        if ($body -match '^\s*<(TextBlock|FontIcon|SymbolIcon|PathIcon|BitmapIcon|ImageIcon|Image)\b[^<>]*/>\s*</Border>') { return $true }
+    }
     if ($tag -notmatch '\bCornerRadius\s*=\s*"\s*([\d.]+(?:\s*[, ]\s*[\d.]+)*)\s*"') { return $false }
     $r = @($Matches[1] -split '[,\s]+' | Where-Object { $_ } | ForEach-Object { [double]$_ })
     $max = ($r | Measure-Object -Maximum).Maximum
@@ -290,22 +352,25 @@ function Test-CardShapeExempt([string] $tag, [string] $text, [int] $after) {
     $h = if ($tag -match '\bHeight\s*=\s*"\s*([\d.]+)\s*"') { [double]$Matches[1] } else { $null }
     if ($w -and $h -and $w -eq $h -and $max -ge $w / 2) { return $true }
     if ($h -and $max -ge $h / 2) { return $true }
-    if ($max -ge 12 -and $tag -notmatch '/>\s*$') {
-        $body = $text.Substring($after, [Math]::Min(600, $text.Length - $after))
-        if ($body -match '^\s*<(TextBlock|FontIcon|SymbolIcon|PathIcon|BitmapIcon|ImageIcon)\b[^<>]*/>\s*</Border>') { return $true }
-    }
     $false
 }
 
 function Get-XamlIssues([string] $text, [string] $name, [string] $fullPath) {
     $out = [System.Collections.Generic.List[object]]::new()
     $script:IsXaml = $true
+    # Only WinUI XAML: a root element whose default namespace is another XAML dialect (for example
+    # .NET MAUI controls embedded in an Uno Platform app) follows other rules.
+    $root = [regex]::Match($text, '^\s*(?:<\?.*?\?>\s*|<!--.*?-->\s*)*<[\w:.]+\b[^>]*>', 'Singleline').Value
+    if ($root -match '\sxmlns\s*=\s*"([^"]+)"' -and $Matches[1] -ne 'http://schemas.microsoft.com/winfx/2006/xaml/presentation') { return $out }
+    $ctx = Get-ProjectContext $fullPath $text
     # Borders inside a ControlTemplate are template parts; re-templating is counted as TEMPLATE info.
     $templates = @($TemplateRx.Matches($text) | ForEach-Object { , @($_.Index, ($_.Index + $_.Length)) })
     # A Border inside a ShadowContainer with no Background only shapes the shadow (Toolkit rule:
     # Background belongs on the container), so it is not a card.
     $shadows = @($ShadowRx.Matches($text) | ForEach-Object { , @($_.Index, ($_.Index + $_.Length)) })
-    foreach ($m in $BorderRx.Matches($text)) {
+    # CARD suggests utu:CardContentControl, so it needs Uno Toolkit.
+    $borders = if ($ctx.Toolkit) { $BorderRx.Matches($text) } else { @() }
+    foreach ($m in $borders) {
         $tag = $m.Value
         if ($tag -notmatch '\bCornerRadius\s*=' -or $tag -notmatch '\b(Background|BorderBrush|Padding)\s*=') { continue }
         if ($templates | Where-Object { $m.Index -ge $_[0] -and $m.Index -lt $_[1] }) { continue }
@@ -316,11 +381,23 @@ function Get-XamlIssues([string] $text, [string] $name, [string] $fullPath) {
         $out.Add((New-Finding 'CARD' $text $m.Index "<Border$n> drawn as a card"))
     }
     # Only the palette override may hold colours (it is what Studio's theme editor writes).
+    # A colour defined per theme in ThemeDictionaries follows light/dark, so only the strict profile
+    # (palette override only) flags it.
+    $themeDicts = @($ThemeDictRx.Matches($text) | ForEach-Object { , @($_.Index, ($_.Index + $_.Length)) })
     if ($name -notmatch $MaterialPal) {
         foreach ($m in $HexRx.Matches($text)) {
+            if (-not $Strict -and ($themeDicts | Where-Object { $m.Index -ge $_[0] -and $m.Index -lt $_[1] })) { continue }
+            # Theme seed colours (<utu:ThemeColors PrimarySeed="#...">) are how a theme gets its palette.
+            $ls = $text.LastIndexOf('<', $m.Index)
+            if ($ls -ge 0 -and $text.Substring($ls, $m.Index - $ls) -match '(?s)^<(\w+:)?ThemeColors\b|\b\w*Seed\s*=\s*"?\s*$') { continue }
+            # Alpha 00 is fully transparent: a hit-test fill, not a colour.
+            if ($m.Groups[1].Value -match '^#(00[0-9A-Fa-f]{6}|0[0-9A-Fa-f]{3})$') { continue }
             if (Test-Suppressed $text $m.Index 'hex') { continue }
             $out.Add((New-Finding 'HEX' $text $m.Index "literal $($m.Groups[1].Value)"))
         }
+    }
+    # SPACING and RADIUS suggest Uno.Themes Space*/Radius* tokens, so they need an Uno.Themes theme.
+    if ($name -notmatch $MaterialPal -and $ctx.Themes) {
         foreach ($rx in $SpaceAttrRx, $ThickResRx) {
             foreach ($m in $rx.Matches($text)) {
                 $vals = $m.Groups[$m.Groups.Count - 1].Value
@@ -347,15 +424,21 @@ function Get-XamlIssues([string] $text, [string] $name, [string] $fullPath) {
     }
     if ($name -notmatch $MaterialPal) {
         $spans = @($ThemeDictRx.Matches($text) | ForEach-Object { , @($_.Index, ($_.Index + $_.Length)) })
+        # Lightweight styling: brushes in one control's Resources (<Button.Resources>) override that
+        # control's own keys, which is the documented way to restyle a single control.
+        $local = @($ControlResRx.Matches($text) | Where-Object { $_.Groups[2].Value -notmatch '^(Page|UserControl|Application|ResourceDictionary|Window|ContentDialog)$' } |
+                   ForEach-Object { , @($_.Index, ($_.Index + $_.Length)) })
         foreach ($m in $BrushKeyRx.Matches($text)) {
             $key = $m.Groups[1].Value
             if ($key -match $InvariantKey) { continue }
             if ($spans | Where-Object { $m.Index -ge $_[0] -and $m.Index -lt $_[1] }) { continue }
+            if ($local | Where-Object { $m.Index -ge $_[0] -and $m.Index -lt $_[1] }) { continue }
             if (Test-Suppressed $text $m.Index 'tokentheme') { continue }
             $out.Add((New-Finding 'TOKENTHEME' $text $m.Index "$key has one value for both themes"))
         }
     }
-    if ($text -notmatch 'NavigationBar') {
+    # In a ContentDialog, Navigation.Request="-" closes the dialog; it is not a back button.
+    if ($ctx.Toolkit -and $text -notmatch 'NavigationBar' -and $text -notmatch '^\s*(<\?xml[^>]*>\s*)?(<!--.*?-->\s*)*<(\w+:)?ContentDialog\b') {
         foreach ($m in $BackRx.Matches($text)) {
             if (Test-Suppressed $text $m.Index 'backbar') { continue }
             $out.Add((New-Finding 'BACKBAR' $text $m.Index 'hand-built back button; no NavigationBar on this page'))
@@ -382,8 +465,10 @@ function Get-XamlIssues([string] $text, [string] $name, [string] $fullPath) {
             $out.Add((New-Finding 'ICON' $text $m.Index "Viewbox composed of $($shapes.Count) shape(s) ($kinds)"))
         }
     }
-    # No exemptions and no suppression: responsive is {utu:Responsive} / utu:ResponsiveView only.
-    foreach ($m in $AdaptiveXamlRx.Matches($text)) {
+    # With Uno Toolkit, responsive is {utu:Responsive} / utu:ResponsiveView only: no exemptions, no
+    # suppression. Without Toolkit, AdaptiveTrigger is the WinUI way and stays allowed.
+    $triggers = if ($ctx.Toolkit) { $AdaptiveXamlRx.Matches($text) } else { @() }
+    foreach ($m in $triggers) {
         $out.Add((New-Finding 'RESPONSIVE' $text $m.Index 'WinUI AdaptiveTrigger'))
     }
     # Item templates usually bind immutable records, where OneTime is right.
@@ -397,11 +482,11 @@ function Get-XamlIssues([string] $text, [string] $name, [string] $fullPath) {
     }
     # MVUX bindable proxies expose a state as its value, so {Binding State.Value} shows empty and
     # writes nothing. Item templates bind plain records, where .Value can be a real property.
-    if ($fullPath -and (Test-ProjectUsesMvux $fullPath)) {
+    if ($ctx.Mvux) {
         foreach ($m in $BindValueRx.Matches($text)) {
             if ($dataTpls | Where-Object { $m.Index -ge $_[0] -and $m.Index -lt $_[1] }) { continue }
             if (Test-Suppressed $text $m.Index 'bindvalue') { continue }
-            $out.Add((New-Finding 'BINDVALUE' $text $m.Index "{Binding $($m.Groups[1].Value)} on an MVUX model"))
+            $out.Add((New-Finding 'BINDVALUE' $text $m.Index "$($m.Groups[1].Value)=`"{Binding $($m.Groups[2].Value), Mode=TwoWay}`" on an MVUX model"))
         }
     }
     $out
@@ -410,6 +495,7 @@ function Get-XamlIssues([string] $text, [string] $name, [string] $fullPath) {
 function Get-CsIssues([string] $text, [string] $name, [string] $companionXaml, [string] $fullPath) {
     $out = [System.Collections.Generic.List[object]]::new()
     $script:IsXaml = $false
+    $ctx = Get-ProjectContext $fullPath $text
     if ($name -match '(?i)\.xaml\.cs$') {
         foreach ($m in $HandlerRx.Matches($text)) {
             if (Test-Suppressed $text $m.Index 'codebehind') { continue }
@@ -436,8 +522,13 @@ function Get-CsIssues([string] $text, [string] $name, [string] $companionXaml, [
             $out.Add((New-Finding 'PLATFORMLEAK' $text $m.Index "platform branch on $($m.Groups[1].Value) in a model"))
         }
     }
-    if ($fullPath -notmatch $TestFile) {
+    # C# Markup palette overrides (ColorPaletteOverride.cs) are the one place colours belong.
+    if ($fullPath -notmatch $TestFile -and $name -notmatch '(?i)^Colou?r(Palette)?Override[^\\/]*\.cs$') {
         foreach ($m in $CsColorRx.Matches($text)) {
+            # A dependency property's default (new PropertyMetadata(new SolidColorBrush(Colors.Black)))
+            # is a fallback that bindings replace, not a colour the app shows.
+            $ls = $text.LastIndexOf("`n", [Math]::Max(0, $m.Index - 1)) + 1
+            if ($text.Substring($ls, $m.Index - $ls) -match '\bPropertyMetadata\s*\(') { continue }
             if (Test-Suppressed $text $m.Index 'cscolor') { continue }
             $lit = $m.Value.TrimEnd([char]40).Trim()
             $out.Add((New-Finding 'CSCOLOR' $text $m.Index "colour literal $lit"))
@@ -449,12 +540,17 @@ function Get-CsIssues([string] $text, [string] $name, [string] $companionXaml, [
             $out.Add((New-Finding $rule $text $m.Index "new $($m.Groups[1].Value)($($m.Groups[2].Value))"))
         }
     }
-    foreach ($m in $AdaptiveCsRx.Matches($text)) {
+    $csTriggers = if ($ctx.Toolkit) { $AdaptiveCsRx.Matches($text) } else { @() }
+    foreach ($m in $csTriggers) {
         $out.Add((New-Finding 'RESPONSIVE' $text $m.Index 'WinUI AdaptiveTrigger created in C#'))
     }
     # Tests may block on purpose; dev-path skipping misses Foo.Tests\ project folders.
-    $syncMatches = if ($fullPath -match $TestFile) { @() } else { $SyncWaitRx.Matches($text) }
+    # Mock endpoints and fakes run as test plumbing, like test projects.
+    $syncMatches = if ($fullPath -match $TestFile -or $fullPath -match '(?i)[\\/]Mocks?[\\/]') { @() } else { $SyncWaitRx.Matches($text) }
     foreach ($m in $syncMatches) {
+        # Reading .Result after checking the task finished does not block.
+        $look = $text.Substring([Math]::Max(0, $m.Index - 200), [Math]::Min(200, $m.Index))
+        if ($m.Value -match '\.Result' -and $look -match 'IsCompleted|IsCompletedSuccessfully|RanToCompletion') { continue }
         if (Test-Suppressed $text $m.Index 'syncwait') { continue }
         $out.Add((New-Finding 'SYNCWAIT' $text $m.Index "blocking wait: $($m.Value.Trim())"))
     }
@@ -474,13 +570,14 @@ function Get-CsIssues([string] $text, [string] $name, [string] $companionXaml, [
 
 function Get-FileIssues([string] $file, [string] $text) {
     $leaf = Split-Path $file -Leaf
-    if ($leaf -match '(?i)\.xaml$') { return Get-XamlIssues $text $leaf $file }
-    if ($leaf -match '(?i)\.cs$') {
+    if ((Get-ProjectContext $file).Maui) { return @() }
+    $issues = if ($leaf -match '(?i)\.xaml$') { Get-XamlIssues $text $leaf $file }
+    elseif ($leaf -match '(?i)\.cs$') {
         $companion = if ($file -match '(?i)\.xaml\.cs$') { $file -replace '(?i)\.cs$', '' } else { $null }
         $cx = if ($companion -and (Test-Path $companion)) { Get-Content $companion -Raw } else { $null }
-        return Get-CsIssues $text $leaf $cx $file
+        Get-CsIssues $text $leaf $cx $file
     }
-    @()
+    @($issues | Where-Object { $_ -and ($Strict -or $_.Rule -notin $StrictOnly) })
 }
 
 # ---------------------------------------------------------------- hook mode
@@ -508,17 +605,23 @@ if ($Hook) {
         if ($issues.Count -eq 0) { exit 0 }
 
         $leaf = Split-Path $file -Leaf
+        # Advice follows what the project references, so a plain WinUI app gets WinUI answers.
+        $ctx = Get-ProjectContext $file $(if ($full) { $full } else { $pieces -join "`n" })
         $fix = @{
             CARD       = 'utu:CardContentControl (Filled/Outlined/ElevatedCardContentControlStyle) + lightweight keys (CardCornerRadius, CardPadding, <Variant>CardContentBackground/BorderBrush).'
-            HEX        = 'a Material role brush (PrimaryBrush, OnSurfaceBrush, SurfaceContainerHighBrush, OutlineVariantBrush, ErrorBrush...). The only colours an app defines live in ColorPaletteOverride (what Studio''s theme editor writes); brand colour goes there. Status and chart colours map to Primary/Secondary/Tertiary/Error and their containers. App token/palette files are not an exemption.'
-            CSCOLOR    = 'read the role colour from theme resources (a Brush DP bound with {ThemeResource ...Brush}, or a lookup keyed on ActualTheme) and Invalidate() on ActualThemeChanged. See skiasharp-uno "Theme colours".'
+            HEX        = $(if ($ctx.Material) { 'a Material role brush (PrimaryBrush, OnSurfaceBrush, SurfaceContainerHighBrush, OutlineVariantBrush, ErrorBrush...). The only colours an app defines live in its ColorPaletteOverride file; brand colour goes there. Status and chart colours map to Primary/Secondary/Tertiary/Error and their containers.' }
+                           else { 'a theme brush ({ThemeResource ...Brush}) from the app''s theme, or a colour defined once in the theme''s colour override file. A literal colour does not follow light/dark or brand changes.' })
+            CSCOLOR    = 'read the colour from theme resources (a Brush dependency property bound with {ThemeResource ...Brush}, or a lookup keyed on ActualTheme) and redraw on ActualThemeChanged.'
             SPACING    = 'Uno.Themes Space* tokens: {StaticResource Space400Thickness} for Margin/Padding, {StaticResource Space200} for Spacing. Rescale the whole app with DefaultSpacing on the theme.'
             RADIUS     = 'Uno.Themes Radius* tokens: {StaticResource Radius200CornerRadius}. Rescale with DefaultCornerRadius on the theme.'
             TOKENTHEME = 'use a theme role brush; else define the key per theme in ThemeDictionaries; name it *Invariant/*OnDark/*OnLight/*Fixed only when its ground is fixed in both themes.'
             BACKBAR    = 'utu:NavigationBar with a MainCommand AppBarButton; back navigation and the Android back gesture come with it.'
-            CODEBEHIND = 'utu:CommandExtensions.Command / model commands / utu:VisualStateManagerExtensions.States bound to state / nested Visibility region for tabs. See "Code-behind budget" in ~/.claude/rules/uno-scaffolding.md.'
-            OVERLAY    = 'uen:Navigation.Request="!Route" to a Page (opens as a flyout) with a DrawerFlyoutPresenter style; filter state lives in the model.'
-            RESPONSIVE = 'breakpoints are always {utu:Responsive} in XAML for a value, utu:ResponsiveView when the whole template changes (custom thresholds via a utu:ResponsiveLayout resource). No WinUI AdaptiveTrigger anywhere (not suppressible), never code-behind, never width flags on a view model. Split state from width instead of allowing it.'
+            CODEBEHIND = $(if ($ctx.Toolkit) { 'utu:CommandExtensions.Command, commands on the model, utu:VisualStateManagerExtensions.States bound to model state, or Visibility bound to the model.' }
+                           else { 'commands on the model (ICommand), VisualStateManager states driven by model state, or Visibility bound to the model.' })
+            OVERLAY    = $(if ($ctx.Navigation) { 'uen:Navigation.Request="!Route" to a Page (opens as a flyout) with a DrawerFlyoutPresenter style; filter state lives in the model.' }
+                           else { 'a Flyout or ContentDialog, or Visibility bound to model state; filter state lives in the model.' })
+            RESPONSIVE = $(if ($ctx.Toolkit) { 'breakpoints are always {utu:Responsive} in XAML for a value, utu:ResponsiveView when the whole template changes (custom thresholds via a utu:ResponsiveLayout resource). No WinUI AdaptiveTrigger (not suppressible), never code-behind, never width flags on a view model.' }
+                           else { 'move the breakpoint into XAML: a VisualStateManager state with an AdaptiveTrigger (or add Uno Toolkit and use {utu:Responsive}). Never compare widths in code-behind or keep width flags on a view model.' })
             BUILTIN    = 'use the platform/Toolkit control named above with lightweight styling before writing a custom control; then Windows Community Toolkit 8.x.'
             PLATFORMLEAK = 'move the branch into a platform service (interface in shared code, implementation per head or in a Platforms/ partial) and inject it; models stay platform-neutral.'
             SYNCWAIT   = 'await the task. If the caller cannot be async (constructor, property), start the load from a command or MVUX feed instead of blocking.'
@@ -531,7 +634,7 @@ if ($Hook) {
             "xaml-semantic-lint: this edit to $leaf added $($issues.Count) semantic-bypass pattern(s):"
             ($issues | ForEach-Object { "- $($_.Rule): $($_.Detail)" })
             ($rules | ForEach-Object { "$_ fix: $($fix[$_])" })
-            'If a framework mechanism failed, follow the workaround protocol in ~/.claude/rules/uno-scaffolding.md. A deliberate exception gets "xaml-lint: allow <rule> - reason" in a comment directly above it.'
+            'A deliberate exception gets "xaml-lint: allow <rule> - reason" in a comment directly above the element; if a framework mechanism failed, the reason names it and how to reproduce it.'
             $(if ($issues | Where-Object Detail -match 'AdaptiveTrigger') { 'AdaptiveTrigger hits have no exception: an allow comment does not suppress them. Replace them.' })
         ) -join "`n"
         @{
@@ -547,11 +650,11 @@ if ($Hook) {
 # ---------------------------------------------------------------- path mode
 if (-not (Test-Path $Path)) { Write-Error "Path not found: $Path"; exit 2 }
 # Get-Item expands 8.3 short names (PLATFO~1); Resolve-Path keeps them, which broke relative file names.
-$root = (Get-Item -LiteralPath $Path).FullName.TrimEnd('\')
+$root = (Get-Item -LiteralPath $Path).FullName.TrimEnd('\', '/')
 
 $candidates = if ((Get-Item $root).PSIsContainer) {
     Get-ChildItem $root -Recurse -File -Include *.xaml, *.cs |
-        Where-Object { $_.FullName -notmatch '\\(bin|obj|node_modules|\.git)\\' -and $_.Name -notmatch '(?i)\.g(\.i)?\.cs$' }
+        Where-Object { $_.FullName -notmatch '[\\/](bin|obj|node_modules|\.git)[\\/]' -and $_.Name -notmatch '(?i)\.g(\.i)?\.cs$' }
 } else { Get-Item $root }
 $skipped = @($candidates | Where-Object { -not $IncludeDev -and $_.FullName.Substring($root.Length) -match $DevPath })
 $files   = @($candidates | Where-Object { $skipped -notcontains $_ })
@@ -563,7 +666,7 @@ foreach ($f in $files) {
     if (-not $text) { continue }
     if ($f.Name -match '(?i)\.xaml$') { $xamlTexts[$f.FullName] = $text }
     foreach ($i in (Get-FileIssues $f.FullName $text)) {
-        $i | Add-Member File ($f.FullName.Substring($root.Length).TrimStart('\'))
+        $i | Add-Member File ($f.FullName.Substring($root.Length).TrimStart('\', '/'))
         $all.Add($i)
     }
 }
@@ -576,7 +679,7 @@ foreach ($kv in $xamlTexts.GetEnumerator()) {
     $fontSizes  += $FontSizeRx.Matches($kv.Value).Count
     $adaptive    += $AdaptiveXamlRx.Matches($kv.Value).Count
     $retemplated += ([regex]::Matches($kv.Value, '<ControlTemplate\b')).Count
-    $responsive += ([regex]::Matches($kv.Value, '\{utu:Responsive\b')).Count
+    $responsive += ([regex]::Matches($kv.Value, '\{\w+:Responsive\b')).Count
     if ($kv.Key -match $MaterialPal) { continue }
     foreach ($m in [regex]::Matches($kv.Value, '\{(?:ThemeResource|StaticResource)\s+([A-Za-z0-9_.]+Brush)\}')) {
         if ($defined.Contains($m.Groups[1].Value)) { $tokenRefs++; $tokenKeys[$m.Groups[1].Value] = 1 }
@@ -586,13 +689,15 @@ foreach ($kv in $xamlTexts.GetEnumerator()) {
 $workarounds = 0
 foreach ($f in $files) { $workarounds += @(Select-String -LiteralPath $f.FullName -Pattern 'WORKAROUND\(' -SimpleMatch:$false).Count }
 
+$active = @($Gating | Where-Object { $Strict -or $_ -notin $StrictOnly })
 $counts = [ordered]@{}
-foreach ($r in $Gating) { $counts[$r] = @($all | Where-Object Rule -eq $r).Count }
+foreach ($r in $active) { $counts[$r] = @($all | Where-Object Rule -eq $r).Count }
 $gatingTotal = ($counts.Values | Measure-Object -Sum).Sum
+$profileName = if ($Strict) { 'strict' } else { 'recommended' }
 
 if ($Json) {
     [pscustomobject]@{
-        root = $root; files = $files.Count; skippedDev = $skipped.Count
+        root = $root; profile = $profileName; files = $files.Count; skippedDev = $skipped.Count
         counts = $counts; tokenRefs = $tokenRefs; tokenKeys = $tokenKeys.Count; fontSizeLiterals = $fontSizes
         adaptiveTriggers = $adaptive; utuResponsive = $responsive; controlTemplates = $retemplated; workarounds = $workarounds
         suppressed = $script:Suppressed
@@ -616,12 +721,15 @@ if ($Json) {
         SYNCWAIT   = 'blocking .Wait()/.Result/GetResult() -> await'
         BINDVALUE  = '{Binding State.Value} on an MVUX model -> {Binding State}'
     }
-    "xaml-semantic-lint  $root  ($($files.Count) files, $($skipped.Count) dev/harness skipped)"
+    "xaml-semantic-lint  $root  ($($files.Count) files, $($skipped.Count) dev/harness skipped, $profileName profile)"
     ''
     'Rule          Count   Supp  Meaning'
     '------------  -----  -----  -------'
     $supp = { param($r) $n = [int]$script:Suppressed[$r]; if ($n) { $n } else { '' } }
-    foreach ($r in $Gating) { '{0,-12}  {1,5}  {2,5}  {3}' -f $r, $counts[$r], (& $supp $r), $meaning[$r] }
+    foreach ($r in $Gating) {
+        if ($counts.Contains($r)) { '{0,-12}  {1,5}  {2,5}  {3}' -f $r, $counts[$r], (& $supp $r), $meaning[$r] }
+        else { '{0,-12}  {1,5}  {2,5}  {3}' -f $r, 'off', '', "$($meaning[$r]) (strict profile)" }
+    }
     '{0,-12}  {1,5}  {2,5}  {3}' -f 'XBINDMODE', @($all | Where-Object Rule -eq 'XBINDMODE').Count, (& $supp 'XBINDMODE'), 'info: x:Bind with no Mode outside item templates (OneTime default)'
     '{0,-12}  {1,5}  {2,5}  {3}' -f 'TOKEN', $tokenRefs, '', "info: refs to $($tokenKeys.Count) app-defined brush keys"
     '{0,-12}  {1,5}  {2,5}  {3}' -f 'FONTSIZE', $fontSizes, '', 'info: literal FontSize attributes (use a Material text style)'
@@ -630,7 +738,7 @@ if ($Json) {
     '{0,-12}  {1,5}  {2,5}  {3}' -f 'WORKAROUND', $workarounds, '', 'info: WORKAROUND(...) markers (each needs a gotcha entry with a repro)'
     $suppTotal = ($script:Suppressed.Values | Measure-Object -Sum).Sum
     if ($suppTotal) { ''; "Supp: $suppTotal hit(s) covered by allow comments. Each should name a framework limit with a repro." }
-    foreach ($r in @($Gating) + @($InfoRules)) {
+    foreach ($r in @($active) + @($InfoRules)) {
         $hits = @($all | Where-Object Rule -eq $r)
         if ($hits.Count -eq 0) { continue }
         ''

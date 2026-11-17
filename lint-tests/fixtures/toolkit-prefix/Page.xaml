@@ -1,0 +1,11 @@
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:toolkit="using:Uno.Toolkit.UI">
+  <StackPanel Orientation="{toolkit:Responsive Narrow=Vertical, Wide=Horizontal}">
+    <toolkit:ShadowContainer Background="{ThemeResource SurfaceBrush}">
+      <Border CornerRadius="{StaticResource Radius200CornerRadius}" Padding="{StaticResource Space400Thickness}" />
+    </toolkit:ShadowContainer>
+    <VisualStateManager.VisualStateGroups><VisualStateGroup><VisualState><VisualState.StateTriggers>
+      <AdaptiveTrigger MinWindowWidth="720" />
+    </VisualState.StateTriggers></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups>
+  </StackPanel>
+</Page>

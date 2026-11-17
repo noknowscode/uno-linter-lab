@@ -1,0 +1,9 @@
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+  <StackPanel>
+    <!-- xaml-lint: allow hex - chart series colour -->
+    <TextBlock
+        Text="A"
+        Foreground="#FF0000" />
+    <TextBlock Foreground="#00FF00" />
+  </StackPanel>
+</Page>

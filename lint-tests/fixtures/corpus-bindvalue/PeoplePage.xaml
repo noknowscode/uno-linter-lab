@@ -1,0 +1,10 @@
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:uen="using:Uno.Extensions.Navigation.UI">
+  <StackPanel DataContext="{Binding NewPerson.Value}">
+    <Button Command="{Binding Save}" CommandParameter="{Binding NewPerson.Value}" />
+    <Button uen:Navigation.Request="Filters" uen:Navigation.Data="{Binding Filter.Value, Mode=TwoWay}" />
+    <Border Style="{Binding Entity.Value, Converter={StaticResource StyleConverter}}" />
+    <TextBlock Text="{Binding CurrentProduct.Description.Value}" />
+    <TextBox Text="{Binding Name.Value, Mode=TwoWay}" />
+  </StackPanel>
+</Page>

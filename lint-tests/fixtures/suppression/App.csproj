@@ -1,0 +1,6 @@
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-desktop</TargetFrameworks>
+    <UnoFeatures>Material;Toolkit;Navigation</UnoFeatures>
+  </PropertyGroup>
+</Project>

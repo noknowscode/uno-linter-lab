@@ -1,0 +1,3 @@
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup><UnoFeatures>SkiaRenderer;Mvvm</UnoFeatures></PropertyGroup>
+</Project>

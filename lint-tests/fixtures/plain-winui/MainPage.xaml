@@ -1,0 +1,10 @@
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Padding="16">
+    <VisualStateManager.VisualStateGroups><VisualStateGroup><VisualState><VisualState.StateTriggers>
+      <AdaptiveTrigger MinWindowWidth="720" />
+    </VisualState.StateTriggers></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups>
+    <Border CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Margin="12" />
+    <TextBlock Foreground="#FF0000" />
+  </Grid>
+</Page>

@@ -1,0 +1,3 @@
+<Project>
+  <PropertyGroup><UnoFeatures>Material;Toolkit;Navigation</UnoFeatures></PropertyGroup>
+</Project>

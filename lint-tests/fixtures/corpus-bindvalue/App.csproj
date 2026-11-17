@@ -1,0 +1,1 @@
+<Project Sdk="Uno.Sdk"><PropertyGroup><UnoFeatures>Material;Toolkit;MVUX;Navigation</UnoFeatures></PropertyGroup></Project>
