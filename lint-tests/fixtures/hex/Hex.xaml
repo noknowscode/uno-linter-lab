@@ -1,0 +1,11 @@
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StackPanel>
+    <TextBlock Foreground="#FF0000" />
+    <TextBlock>
+      <TextBlock.Foreground><SolidColorBrush><SolidColorBrush.Color>#112233</SolidColorBrush.Color></SolidColorBrush></TextBlock.Foreground>
+    </TextBlock>
+    <!-- xaml-lint: allow hex - chart series colour, no role covers it -->
+    <TextBlock Foreground="#00FF00" />
+  </StackPanel>
+</Page>

@@ -1,0 +1,3 @@
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup><UnoFeatures>Material;Toolkit;Mvvm</UnoFeatures></PropertyGroup>
+</Project>

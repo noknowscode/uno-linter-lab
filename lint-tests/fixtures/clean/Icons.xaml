@@ -1,0 +1,5 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <x:String x:Key="ChevronIconData">M8,4 L16,12 L8,20</x:String>
+  <Path x:Key="Logo" Data="M0,0 L10,10" />
+</ResourceDictionary>

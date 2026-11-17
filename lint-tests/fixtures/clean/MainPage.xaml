@@ -1,0 +1,24 @@
+<Page x:Class="App.MainPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:utu="using:Uno.Toolkit.UI"
+      xmlns:uen="using:Uno.Extensions.Navigation.UI">
+  <Grid Background="{ThemeResource BackgroundBrush}">
+    <utu:NavigationBar Content="Details">
+      <utu:NavigationBar.MainCommand>
+        <AppBarButton uen:Navigation.Request="-" />
+      </utu:NavigationBar.MainCommand>
+    </utu:NavigationBar>
+    <utu:AutoLayout Spacing="{StaticResource Space200}" Padding="{StaticResource Space400Thickness}"
+                    Orientation="{utu:Responsive Narrow=Vertical, Wide=Horizontal}">
+      <utu:CardContentControl Style="{StaticResource FilledCardContentControlStyle}">
+        <TextBlock Text="{x:Bind ViewModel.Title, Mode=OneWay}" Style="{StaticResource TitleMedium}" />
+      </utu:CardContentControl>
+      <Border Background="{ThemeResource OutlineVariantBrush}" Height="1" />
+      <Border CornerRadius="0" Padding="0" />
+      <PathIcon Data="{StaticResource ChevronIconData}" />
+      <SymbolIcon Symbol="Home" />
+      <Button Command="{x:Bind ViewModel.Save}" Content="Save" />
+    </utu:AutoLayout>
+  </Grid>
+</Page>
